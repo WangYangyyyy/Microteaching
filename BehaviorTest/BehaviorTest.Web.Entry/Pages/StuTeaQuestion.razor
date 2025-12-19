@@ -1,0 +1,442 @@
+@page "/classteaquestion"
+@using System.Text.Json
+@using BehaviorTest.Application.RBAC.Entity
+@inject IJSRuntime JS
+@inject IQuestionAnswerService QuestionAnswerService
+@inject IQaEvaluationService QaEvaluationService
+
+<h3>🎙️ 语音课堂（唤醒词触发三学生回答）</h3>
+
+<div style="margin:10px 0; padding:10px; background:#fff; border-radius:8px;">
+  <b>状态：</b> @Status
+</div>
+
+<div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
+  <label>后端 API Base：</label>
+  <input style="width:280px" @bind="ApiBase"/>
+
+  <label>唤醒词：</label>
+  <input style="width:180px" @bind="WakeWord" placeholder="例如：同学请回答"/>
+
+  <label>切段时长(ms)：</label>
+  <input style="width:120px" type="number" @bind="SilenceMs"/>
+
+  <label>音量阈值：</label>
+  <input style="width:90px" type="number" @bind="VolumeThreshold" min="1" max="200"/>
+
+  <label>自适应阈值：</label>
+  <input type="checkbox" @bind="UseAdaptiveThreshold" />
+
+  <button @onclick="Start">开始</button>
+  <button @onclick="Stop">停止</button>
+</div>
+
+<div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
+  <label>底噪采样(ms)：</label>
+  <input style="width:90px" type="number" @bind="NoiseSampleMs" min="200" max="3000"/>
+
+  <label>底噪裕度：</label>
+  <input style="width:90px" type="number" @bind="NoiseMargin" min="1" max="50"/>
+
+  <label>最短录音(ms)：</label>
+  <input style="width:100px" type="number" @bind="MinRecordMs" min="200" max="5000"/>
+
+  <label>连续静音帧：</label>
+  <input style="width:90px" type="number" @bind="SilentFrames" min="3" max="30"/>
+
+  <label>平滑窗口：</label>
+  <input style="width:90px" type="number" @bind="SmoothWindow" min="1" max="10"/>
+</div>
+
+<div style="max-width:900px; background:#fff; border-radius:8px; padding:15px; height:420px; overflow:auto;">
+  @foreach (var m in Messages)
+  {
+    <div style="@GetMsgStyle(m.Kind)">
+      <div style="font-weight:bold; margin-bottom:4px;">@m.Title</div>
+      <div>@m.Text</div>
+    </div>
+  }
+</div>
+
+<div style="margin-top:10px; color:#666;">
+  <div>提示：请说：<b>@WakeWord：你的问题</b>（例如：同学请回答：牛顿第一定律是什么？）</div>
+  <div>ASR 原文也会显示，方便你调试唤醒词。</div>
+</div>
+
+<h4 style="margin-top:20px;">问答记录</h4>
+<div style="margin:10px 0; display:flex; gap:10px; align-items:center;">
+  <label>拉取条数：</label>
+  <input type="number" style="width:80px" @bind="TakeCount" min="1" max="100"/>
+  <button @onclick="LoadRecent">刷新</button>
+  <button @onclick="() => SendToLlm(null)" disabled="@IsEvaluating">@(IsEvaluating ? "评估中..." : "发送到LLM评估")</button>
+  <span style="color:#666;">共 @RecentRecords.Count 条</span>
+</div>
+
+<div style="background:#fff; border-radius:8px; padding:12px; max-width:900px;">
+  <table class="table">
+    <thead>
+    <tr>
+      <th>ID</th>
+      <th>Session</th>
+      <th>问题</th>
+      <th>时间</th>
+      <th>回答数</th>
+      <th>操作</th>
+    </tr>
+    </thead>
+    <tbody>
+    @foreach (var r in RecentRecords)
+    {
+      <tr>
+        <td>@r.Id</td>
+        <td>@(r.SessionId?.ToString() ?? "-")</td>
+        <td>@r.Question</td>
+        <td>@r.AskedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</td>
+        <td>@r.Answers.Count</td>
+        <td>
+          <button @onclick="() => ToggleAnswers(r.Id)">@(Expanded.Contains(r.Id) ? "收起" : "查看")</button>
+          <button style="margin-left:6px;" @onclick="() => SendToLlm(r.Id)" disabled="@IsEvaluating">评估</button>
+        </td>
+      </tr>
+      @if (Expanded.Contains(r.Id))
+      {
+        <tr>
+          <td colspan="6" style="background:#f9f9f9;">
+            @if (r.Answers.Count == 0)
+            {
+              <div style="color:#999;">暂无回答</div>
+            }
+            else
+            {
+              <ul style="margin:0; padding-left:18px;">
+                @foreach (var a in r.Answers)
+                {
+                  <li><b>@(a.Name ?? "学生")</b> (@(a.Role ?? "角色"))：@a.Answer</li>
+                }
+              </ul>
+            }
+          </td>
+        </tr>
+      }
+    }
+    </tbody>
+  </table>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(EvalMessage))
+{
+  <div style="margin-top:10px; color:#999;">@EvalMessage</div>
+}
+
+@if (!string.IsNullOrWhiteSpace(EvalResult))
+{
+  <div style="margin-top:10px; background:#f8f9fa; padding:12px; border-radius:6px; white-space:pre-wrap;">
+    @EvalResult
+  </div>
+}
+
+@code {
+  private IJSObjectReference? _module;
+  private DotNetObjectReference<StuTeaQuestion>? _dotNetRef;
+
+  public string ApiBase { get; set; } = "http://118.230.212.160:9010";
+  public string WakeWord { get; set; } = "同学";
+  public int SilenceMs { get; set; } = 1800;
+  public int VolumeThreshold { get; set; } = 2;
+  public bool UseAdaptiveThreshold { get; set; } = true;
+  public int NoiseSampleMs { get; set; } = 1000;
+  public int NoiseMargin { get; set; } = 2;
+  public int MinRecordMs { get; set; } = 1200;
+  public int SilentFrames { get; set; } = 10;
+  public int SmoothWindow { get; set; } = 5;
+  public int SessionId { get; set; } = 0;
+
+  public string Status { get; set; } = "未开始";
+
+  public List<ChatMsg> Messages { get; set; } = new();
+  private string? _currentQuestion;
+  private DateTime _currentQuestionAt = DateTime.UtcNow;
+
+  private int TakeCount { get; set; } = 20;
+  private List<QaRecordView> RecentRecords { get; set; } = new();
+  private HashSet<ulong> Expanded { get; set; } = new();
+
+  private bool IsEvaluating { get; set; }
+  private string EvalResult { get; set; } = "";
+  private string EvalMessage { get; set; } = "";
+
+  protected override async Task OnAfterRenderAsync(bool firstRender)
+  {
+    if (firstRender)
+    {
+      _module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/classroomAudio.js");
+      _dotNetRef = DotNetObjectReference.Create(this);
+      await LoadRecent();
+    }
+  }
+
+  private async Task Start()
+  {
+    if (_module is null || _dotNetRef is null) return;
+
+    Messages.Add(new ChatMsg("system", "系统", "开始监听（需要麦克风权限）"));
+
+    // ✅ 新版 classroomAudio.js：第 6 个参数开始用 options 对象传配置
+    var options = new
+    {
+      SilenceMs = SilenceMs,
+      VolumeThreshold = VolumeThreshold,
+      UseAdaptiveThreshold = UseAdaptiveThreshold,
+      NoiseSampleMs = NoiseSampleMs,
+      NoiseMargin = NoiseMargin,
+      MinRecordMs = MinRecordMs,
+      SilentFrames = SilentFrames,
+      SmoothWindow = SmoothWindow
+    };
+
+    await _module.InvokeVoidAsync(
+      "startClassroomLoop",
+      _dotNetRef,
+      ApiBase,
+      WakeWord,
+      SilenceMs,
+      SessionId,
+      options
+    );
+  }
+
+  private async Task Stop()
+  {
+    if (_module is null) return;
+    await _module.InvokeVoidAsync("stopClassroomLoop");
+    Status = "已停止";
+    Messages.Add(new ChatMsg("system", "系统", "已停止监听"));
+    StateHasChanged();
+  }
+
+  private string GetMsgStyle(string kind)
+  {
+    var baseStyle = "margin-bottom:10px; padding:10px; border-radius:6px;";
+    return kind switch
+    {
+      "teacher" => baseStyle + " background:#e3f2fd; border-left:4px solid #4361ee;",
+      "student" => baseStyle + " background:#f1f8e9; border-left:4px solid #8bc34a;",
+      "error" => baseStyle + " background:#ffebee; border-left:4px solid #e53935;",
+      _ => baseStyle + " background:#f5f5f5; border-left:4px solid #999;",
+    };
+  }
+
+  // ===== JS 回调（必须 public + [JSInvokable]） =====
+
+  [JSInvokable]
+  public Task SetStatus(string s)
+  {
+    Status = s;
+    InvokeAsync(StateHasChanged);
+    return Task.CompletedTask;
+  }
+
+  [JSInvokable]
+  public Task OnAsrRaw(string raw)
+  {
+    if (!string.IsNullOrWhiteSpace(raw))
+      Messages.Add(new ChatMsg("system", "ASR原文", raw));
+    InvokeAsync(StateHasChanged);
+    return Task.CompletedTask;
+  }
+
+  [JSInvokable]
+  public Task OnTeacherQuestion(string question)
+  {
+    Messages.Add(new ChatMsg("teacher", "老师提问", question));
+    _currentQuestion = question;
+    _currentQuestionAt = DateTime.UtcNow;
+    InvokeAsync(StateHasChanged);
+    return Task.CompletedTask;
+  }
+
+  // JS 里传过来的是数组对象，Blazor 会按 JsonElement 接收最稳
+  [JSInvokable]
+  public async Task OnStudentAnswers(JsonElement answers)
+  {
+    var collected = new List<StudentAnswerDto>();
+    // ✅ 1. 定义一个列表专门存音频
+    var audioList = new List<string>(); 
+
+    if (answers.ValueKind == JsonValueKind.Array)
+    {
+      foreach (var a in answers.EnumerateArray())
+      {
+        var name = a.TryGetProperty("name", out var n) ? n.GetString() : "学生";
+        var role = a.TryGetProperty("role", out var r) ? r.GetString() : "";
+        var ans = a.TryGetProperty("answer", out var c) ? c.GetString() : "";
+        
+        // ✅ 2. 提取后端返回的音频数据
+        var audio = a.TryGetProperty("audio_base64", out var au) ? au.GetString() : "";
+
+        Messages.Add(new ChatMsg("student", $"{name}（{role}）", ans ?? ""));
+        
+        // ✅ 3. 如果有音频，加入播放列表
+        if (!string.IsNullOrEmpty(audio)) 
+        {
+            audioList.Add(audio);
+        }
+
+        collected.Add(new StudentAnswerDto
+        {
+          Name = name,
+          Role = role,
+          Answer = ans
+          // 注意：通常不把 Audio_Base64 存入数据库，因为太占空间，这里就不赋值给 collected 了
+        });
+      }
+    }
+
+    // ✅ 4. 调用 JS 播放声音
+    if (audioList.Count > 0 && _module is not null)
+    {
+        await _module.InvokeVoidAsync("playStudentAudios", audioList);
+    }
+
+    // --- 下面是原本的保存逻辑，保持不变 ---
+    if (!string.IsNullOrWhiteSpace(_currentQuestion))
+    {
+      try
+      {
+        var saveResult = await QuestionAnswerService.SaveAsync(new QaSaveRequest
+        {
+          SessionId = SessionId == 0 ? null : SessionId,
+          Question = _currentQuestion!,
+          AskedAt = _currentQuestionAt,
+          Answers = collected
+        });
+        if (!saveResult.Success) Messages.Add(new ChatMsg("error", "保存失败", saveResult.Message));
+        else await LoadRecent();
+      }
+      catch (Exception ex)
+      {
+        Messages.Add(new ChatMsg("error", "保存异常", ex.Message));
+      }
+    }
+    else
+    {
+      Messages.Add(new ChatMsg("error", "提示", "接收到回答，但未获取到上一个老师提问。"));
+    }
+
+    InvokeAsync(StateHasChanged);
+  }
+  
+  [JSInvokable]
+  public Task OnError(string message)
+  {
+    Messages.Add(new ChatMsg("error", "错误", message));
+    Status = "发生错误（见下方）";
+    InvokeAsync(StateHasChanged);
+    return Task.CompletedTask;
+  }
+
+  public record ChatMsg(string Kind, string Title, string Text);
+
+  private async Task LoadRecent()
+  {
+    var list = await QuestionAnswerService.GetRecentAsync(TakeCount);
+    RecentRecords = list.Select(Map).ToList();
+    Expanded.Clear();
+    StateHasChanged();
+  }
+
+  private QaRecordView Map(QaRecord r)
+  {
+    var answers = new List<StudentAnswerDto>();
+    try
+    {
+      var parsed = JsonSerializer.Deserialize<List<StudentAnswerDto>>(r.AnswersJson,
+        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+      if (parsed != null) answers = parsed;
+    }
+    catch
+    {
+    }
+
+    return new QaRecordView
+    {
+      Id = r.Id,
+      SessionId = r.SessionId,
+      Question = r.Question,
+      AskedAt = r.AskedAt,
+      Answers = answers
+    };
+  }
+
+  private void ToggleAnswers(ulong id)
+  {
+    if (!Expanded.Add(id))
+      Expanded.Remove(id);
+  }
+
+  private async Task SendToLlm(ulong? qaId = null)
+  {
+    if (IsEvaluating) return;
+
+    try
+    {
+      IsEvaluating = true;
+      EvalMessage = "正在调用 LLM 评估...";
+      EvalResult = "";
+      StateHasChanged();
+
+      var payload = new QaEvaluationRequest
+      {
+        SessionId = qaId.HasValue ? null : (SessionId == 0 ? null : SessionId),
+        QaIds = qaId.HasValue ? new List<ulong> { qaId.Value } : null,
+        Take = TakeCount,
+        SystemPrompt = null
+      };
+
+      var op = await QaEvaluationService.EvaluateAsync(payload);
+      if (op.Success)
+      {
+        EvalMessage = "评估完成";
+        EvalResult = op.Data?.ToString() ?? string.Empty;
+      }
+      else
+      {
+        EvalMessage = op.Message;
+        EvalResult = string.Empty;
+      }
+    }
+    catch (Exception ex)
+    {
+      EvalMessage = $"调用异常: {ex.Message}";
+    }
+    finally
+    {
+      IsEvaluating = false;
+      StateHasChanged();
+    }
+  }
+
+  private class QaRecordView
+  {
+    public ulong Id { get; set; }
+    public int? SessionId { get; set; }
+    public string Question { get; set; } = string.Empty;
+    public DateTime AskedAt { get; set; }
+    public List<StudentAnswerDto> Answers { get; set; } = new();
+  }
+
+  public async ValueTask DisposeAsync()
+  {
+    try
+    {
+      if (_module is not null)
+        await _module.InvokeVoidAsync("stopClassroomLoop");
+    }
+    catch
+    {
+    }
+
+    _dotNetRef?.Dispose();
+    if (_module is not null) await _module.DisposeAsync();
+  }
+}

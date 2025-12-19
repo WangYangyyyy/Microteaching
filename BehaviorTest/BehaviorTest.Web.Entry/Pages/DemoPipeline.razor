@@ -1,0 +1,804 @@
+﻿@page "/demo-pipeline"
+
+@using System.Globalization
+@using Microsoft.Extensions.DependencyInjection
+@using BehaviorTest.Application.RBAC.Services.DemoService
+@using BehaviorTest.Application.RBAC.Services.DemoService.DTO
+
+@inject IVideoService VideoService
+@inject IDemoEvaluationService DemoEvaluationService
+@inject IServiceScopeFactory ScopeFactory
+
+@implements IDisposable
+
+<div class="container-fluid py-3">
+
+    <!-- 标题区 -->
+    <div class="row mb-3">
+        <div class="col-12">
+            <div class="d-flex align-items-center mb-1">
+                <h3 class="mb-0 me-3">课堂评价一键处理 Demo（理论课）</h3>
+                <span class="badge bg-secondary">基于邯郸学院课堂教学评价标准</span>
+            </div>
+            <div class="text-muted small">
+                在本页面中，可以完成：
+                <strong>上传视频 → 选择视频 → 预览 → 一键处理（切割 / 转音频 / 转录 / 摘要 / 改进建议报告）→ PDF 报告预览</strong>。
+                <br />
+                已执行成功的阶段会自动跳过，不会重复处理。
+            </div>
+        </div>
+    </div>
+
+    <!-- 第 1 行：左上传/选择 + 右视频预览 -->
+    <div class="row mb-3">
+        <!-- 左：上传 + 选择视频 + 启动处理 -->
+        <div class="col-lg-6">
+            <div class="card shadow-sm">
+                <div class="card-header bg-white">
+                    <strong>1. 上传 / 选择视频并启动处理</strong>
+                </div>
+                <div class="card-body">
+
+                    <!-- 1.1 上传视频 -->
+                    <div class="mb-3">
+                        <label class="form-label">上传本地视频文件</label>
+                        <InputFile OnChange="OnFileSelected" />
+                        <div class="form-text">
+                            建议上传 mp4 等常见格式。上传成功后会自动填充视频 ID，并在右侧显示视频预览，同时出现在下方视频列表中。
+                        </div>
+
+                        @if (IsUploading)
+                        {
+                            <div class="small text-muted mt-2">
+                                <span class="spinner-border spinner-border-sm me-1"></span>
+                                正在上传视频，请稍候…
+                            </div>
+                        }
+                        else if (!string.IsNullOrWhiteSpace(UploadMessage))
+                        {
+                            <div class="small text-success mt-2">
+                                @UploadMessage
+                            </div>
+                        }
+                    </div>
+
+                    <hr />
+
+                    <!-- 1.2 手动 / 自动选择视频 ID -->
+                    <div class="mb-3">
+                        <label class="form-label">当前选中视频 ID</label>
+                        <!-- 注意：InputNumber 只支持有符号数，这里用 long? -->
+                        <InputNumber @bind-Value="VideoIdInput"
+                                     class="form-control"
+                                     TValue="long?" 
+                                     />
+                        <div class="form-text">
+                            上传成功后会自动填入；也可以从下方“视频列表”点击选择，或手动输入已有视频的 ID。
+                        </div>
+                    </div>
+
+                    <!-- 1.3 启动处理按钮 -->
+                    <div class="d-flex align-items-center">
+                        <button class="btn btn-primary me-2"
+                                @onclick="StartPipelineAsync"
+                                disabled="@IsRunning">
+                            @if (IsRunning)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                                <span>正在处理课堂，请稍候…</span>
+                            }
+                            else
+                            {
+                                <span>开始一键处理</span>
+                            }
+                        </button>
+
+                        @if (IsRunning)
+                        {
+                            <button class="btn btn-outline-secondary"
+                                    @onclick="CancelPipelineAsync">
+                                取消处理
+                            </button>
+                        }
+
+                        @if (Progress is not null)
+                        {
+                            <span class="ms-3 small text-muted">
+                                当前状态：@RenderOverallStatusBadge(Progress.Status)
+                            </span>
+                        }
+                    </div>
+
+                    @if (!string.IsNullOrWhiteSpace(ErrorMessage))
+                    {
+                        <div class="alert alert-danger mt-3 mb-0" role="alert">
+                            @ErrorMessage
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- 右：视频预览 -->
+        <div class="col-lg-6 mt-3 mt-lg-0">
+            <div class="card shadow-sm h-100">
+                <div class="card-header bg-white">
+                    <strong>2. 视频预览</strong>
+                </div>
+                <div class="card-body">
+                    @if (!string.IsNullOrEmpty(VideoPreviewUrl))
+                    {
+                        @* <div class="mb-2 small text-muted"> *@
+                        @*     当前预览视频地址：<code>@VideoPreviewUrl</code> *@
+                        @* </div> *@
+                        <div class="ratio ratio-16x9 border bg-black">
+                            <video src="@VideoPreviewUrl"
+                                   controls
+                                   style="width:100%; height:100%; object-fit:contain; background-color:#000;">
+                                您的浏览器不支持 video 标签。
+                            </video>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="text-muted small">
+                            暂未选择视频。可以先上传一个视频，或在下方“视频列表”中点击选择一个已有视频。
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 第 2 行：视频列表 -->
+    <div class="row mb-3">
+        <div class="col-12">
+            <div class="card shadow-sm">
+                <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                    <strong>3. 视频列表（点击选择）</strong>
+                    <button class="btn btn-sm btn-outline-secondary"
+                            @onclick="LoadVideoListAsync"
+                            disabled="@IsVideoListLoading">
+                        @if (IsVideoListLoading)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        刷新
+                    </button>
+                </div>
+                <div class="card-body p-0">
+                    @if (IsVideoListLoading)
+                    {
+                        <div class="p-3 text-muted small">
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                            正在加载视频列表…
+                        </div>
+                    }
+                    else if (!string.IsNullOrEmpty(VideoListError))
+                    {
+                        <div class="p-3 text-danger small">
+                            @VideoListError
+                        </div>
+                    }
+                    else if (VideoList is null || VideoList.Count == 0)
+                    {
+                        <div class="p-3 text-muted small">
+                            当前没有可用视频。请先通过上方“上传本地视频文件”上传一个。
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-sm mb-0 align-middle">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th style="width:80px;">ID</th>
+                                        <th>文件名</th>
+                                        <th style="width:150px;">上传时间</th>
+                                        <th style="width:100px;">状态</th>
+                                        <th style="width:120px;">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var v in VideoList)
+                                    {
+                                        var isSelected = VideoIdInput.HasValue && (ulong)VideoIdInput.Value == v.Id;
+                                        <tr class="@((isSelected ? "table-primary" : ""))">
+                                            <td>@v.Id</td>
+                                            <td title="@v.FilePath">
+                                                <span class="text-truncate d-inline-block" style="max-width: 260px;">
+                                                    @v.FileName
+                                                </span>
+                                            </td>
+                                            <td>@v.UploadTime.ToString("yyyy-MM-dd HH:mm")</td>
+                                            <td>@v.Status</td>
+                                            <td>
+                                                <button class="btn btn-sm btn-outline-primary"
+                                                        @onclick="@(() => SelectVideo(v))">
+                                                    @(isSelected ? "已选中" : "选择")
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="p-2 small text-muted">
+                            提示：点击“选择”会自动填充视频 ID，并在右侧显示视频预览。
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 第 3 行：进度条 + 步骤详情 -->
+    @if (Progress is not null)
+    {
+        <div class="row mb-3">
+            <div class="col-lg-5 mb-3 mb-lg-0">
+                <div class="card shadow-sm h-100">
+                    <div class="card-header bg-white">
+                        <strong>4. 整体处理进度</strong>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-2 d-flex justify-content-between align-items-center">
+                            <span class="small text-muted">
+                                当前阶段：
+                                <strong>@GetStageDisplayName(Progress.CurrentStage)</strong>
+                            </span>
+                            <span class="small text-muted">
+                                已完成 @Progress.CompletedStages / @Progress.TotalStages 步
+                            </span>
+                        </div>
+
+                        <div class="progress mb-2" style="height: 26px;">
+                            @{
+                                var percent = Math.Clamp(Progress!.Progress * 100.0, 0, 100);
+                            }
+                            <div class="progress-bar"
+                                 role="progressbar"
+                                 style="width: @percent.ToString("F0", CultureInfo.InvariantCulture)%;"
+                                 aria-valuenow="@percent.ToString("F0", CultureInfo.InvariantCulture)"
+                                 aria-valuemin="0"
+                                 aria-valuemax="100">
+                                @percent.ToString("F0", CultureInfo.InvariantCulture)%
+                            </div>
+                        </div>
+
+                        <div class="small">
+                            当前状态：@RenderOverallStatusBadge(Progress.Status)
+                        </div>
+                        <div class="small text-muted mt-1">
+                            提示：已成功完成的阶段，下次再次执行会自动跳过，不重复处理。
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-7">
+                <div class="card shadow-sm h-100">
+                    <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                        <strong>5. 各步骤详情</strong>
+                        <span class="badge bg-light text-dark small">
+                            切割 / 转音频 / 转录 / 摘要 / 建议报告
+                        </span>
+                    </div>
+                    <div class="card-body p-0">
+                        <ul class="list-group list-group-flush">
+                            @foreach (var stage in Progress.Stages)
+                            {
+                                var displayName = GetStageDisplayName(stage.Stage);
+                                <li class="list-group-item d-flex justify-content-between align-items-start">
+                                    <div class="me-3">
+                                        <div class="fw-semibold">@displayName</div>
+                                        <div class="small text-muted">
+                                            @GetStageTimeText(stage)
+                                        </div>
+                                        @if (!string.IsNullOrWhiteSpace(stage.ErrorMessage))
+                                        {
+                                            <div class="small text-danger mt-1">
+                                                @stage.ErrorMessage
+                                            </div>
+                                        }
+                                    </div>
+                                    <div class="text-end">
+                                        @RenderStageStatusBadge(stage.Status)
+                                    </div>
+                                </li>
+                            }
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- 第 4 行：结果概要 + PDF 报告 -->
+    @if (FinalResult is not null)
+    {
+        <div class="row mb-3">
+            <div class="col-lg-5 mb-3 mb-lg-0">
+                <div class="card shadow-sm ">
+                    <div class="card-header bg-white">
+                        <strong>6. 处理结果概要</strong>
+                    </div>
+                    <div class="card-body">
+                        <dl class="row mb-0">
+                            <dt class="col-sm-4 col-md-3">视频切割</dt>
+                            <dd class="col-sm-8 col-md-9">
+                                @RenderOperationResult(FinalResult.CutResult)
+                            </dd>
+
+                            <dt class="col-sm-4 col-md-3">片段转音频</dt>
+                            <dd class="col-sm-8 col-md-9">
+                                成功：<span class="text-success fw-semibold">@FinalResult.AudioConversionResult.SuccessCount</span>，
+                                失败：<span class="text-danger fw-semibold">@FinalResult.AudioConversionResult.FailureCount</span>
+                            </dd>
+
+                            <dt class="col-sm-4 col-md-3">音频转录</dt>
+                            <dd class="col-sm-8 col-md-9">
+                                成功：<span class="text-success fw-semibold">@FinalResult.TranscriptionResult.SuccessCount</span>，
+                                失败：<span class="text-danger fw-semibold">@FinalResult.TranscriptionResult.FailureCount</span>
+                            </dd>
+
+                            <dt class="col-sm-4 col-md-3">摘要生成</dt>
+                            <dd class="col-sm-8 col-md-9">
+                                成功：<span class="text-success fw-semibold">@FinalResult.SummaryResult.SuccessCount</span>，
+                                失败：<span class="text-danger fw-semibold">@FinalResult.SummaryResult.FailureCount</span>
+                            </dd>
+
+                            <dt class="col-sm-4 col-md-3">课堂改进建议报告</dt>
+                            <dd class="col-sm-8 col-md-9">
+                                @RenderOperationResult(FinalResult.EvaluationResult)
+                            </dd>
+                        </dl>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PDF 报告预览 -->
+            <div class="col-lg-7">
+                @if (!string.IsNullOrEmpty(PdfReportUrl))
+                {
+                    <div class="card shadow-sm h-100 py-4">
+                        <div class="card-header bg-white">
+                            <strong>7. 改进建议报告（PDF）</strong>
+                        </div>
+                        <div class="card-body d-flex flex-column">
+                            <div class="mb-2 small text-muted">
+                                报告基于《邯郸学院课堂教学评价标准（理论课）》六个观察点自动生成，仅供教学改进参考。
+                            </div>
+
+                            <div class="mb-3">
+                                <button class="btn btn-outline-primary"
+                                        @onclick="TogglePdfPreview">
+                                    @(ShowPdfPreview ? "隐藏 PDF 预览" : "预览 PDF 报告")
+                                </button>
+
+                                <a class="btn btn-link ms-1"
+                                   href="@PdfReportUrl"
+                                   target="_blank">
+                                    在新窗口中打开
+                                </a>
+                            </div>
+
+                            @if (ShowPdfPreview)
+                            {
+                                <div class="flex-grow-1 border min-vh-100"
+                                     style="min-height: 280px; max-height: 520px;">
+                                    <iframe src="@PdfReportUrl"
+                                            style="width: 100%; height: 100%; border: none;"
+                                            title="课堂改进建议报告预览">
+                                    </iframe>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="text-muted small">
+                                    点击“预览 PDF 报告”按钮，在此处内嵌查看建议报告；
+                                    或通过右侧链接在新窗口中打开。
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="card shadow-sm h-100">
+                        <div class="card-header bg-white">
+                            <strong>7. 改进建议报告（PDF）</strong>
+                        </div>
+                        <div class="card-body">
+                            <div class="text-muted small">
+                                还未生成或未找到 PDF 报告。请先完成“一键处理”并保证“课堂改进建议报告”步骤成功。
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+</div>
+
+@code {
+    // ------------- 状态字段 -------------
+
+    // 用于 InputNumber 绑定的类型：long?（InputNumber 不支持 ulong）
+    private long? VideoIdInput { get; set; }
+
+    private bool IsUploading { get; set; }
+    private string? UploadMessage { get; set; }
+
+    private bool IsRunning { get; set; }
+    private string? ErrorMessage { get; set; }
+
+    private PipelineProgressDto? Progress { get; set; }
+    private DemoPipelineResultDto? FinalResult { get; set; }
+
+    private string? PdfReportUrl { get; set; }
+    private bool ShowPdfPreview { get; set; } = false;
+
+    private string? VideoPreviewUrl { get; set; }
+
+    private CancellationTokenSource? _cts;
+
+    // 视频列表
+    private List<VideoInfoDto> VideoList { get; set; } = new();
+    private bool IsVideoListLoading { get; set; }
+    private string? VideoListError { get; set; }
+
+    // 阶段中文名映射（需和 DemoService 里的 Stage 常量一致）
+    private readonly Dictionary<string, string> _stageDisplayNames = new()
+    {
+        ["cut_video"] = "① 视频切割",
+        ["convert_audio"] = "② 片段转音频",
+        ["transcribe"] = "③ 音频转录",
+        ["summary"] = "④ 摘要生成",
+        ["evaluate"] = "⑤ 课堂改进建议报告"
+    };
+
+    // 页面初始化时加载视频列表
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadVideoListAsync();
+    }
+
+    // ------------- 上传相关 -------------
+
+    private async Task OnFileSelected(InputFileChangeEventArgs e)
+    {
+        ErrorMessage = null;
+        UploadMessage = null;
+
+        var file = e.File;
+        if (file is null)
+        {
+            ErrorMessage = "请选择要上传的视频文件。";
+            return;
+        }
+
+        IsUploading = true;
+        try
+        {
+            // 允许较大的文件（示例：4GB，可按需调整）
+            const long maxAllowedSize = 4L * 1024 * 1024 * 1024;
+
+            await using var stream = file.OpenReadStream(maxAllowedSize);
+            var result = await VideoService.UploadVideoAsync(
+                file.Name,
+                stream,
+                file.ContentType ?? "video/mp4");
+
+            if (!result.Success)
+            {
+                ErrorMessage = "上传失败：" + result.Message;
+                return;
+            }
+
+            if (result.Data is VideoInfoDto info)
+            {
+                // 更新当前选中视频
+                VideoIdInput = (long)info.Id;
+                VideoPreviewUrl = info.FilePath;
+                UploadMessage = $"上传成功，视频 ID: {info.Id}";
+
+                // 刷新视频列表
+                await LoadVideoListAsync();
+            }
+            else
+            {
+                UploadMessage = "上传成功，但未获取到视频信息。";
+            }
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = "上传过程中发生异常：" + ex.Message;
+        }
+        finally
+        {
+            IsUploading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    // 从视频列表选择
+    private void SelectVideo(VideoInfoDto v)
+    {
+        VideoIdInput = (long)v.Id;
+        VideoPreviewUrl = v.FilePath;
+        ErrorMessage = null;
+    }
+
+    // 加载视频列表
+    private async Task LoadVideoListAsync()
+    {
+        IsVideoListLoading = true;
+        VideoListError = null;
+
+        try
+        {
+            var list = await VideoService.GetAllVideosAsync();
+            VideoList = list ?? new List<VideoInfoDto>();
+        }
+        catch (Exception ex)
+        {
+            VideoListError = "加载视频列表失败：" + ex.Message;
+        }
+        finally
+        {
+            IsVideoListLoading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    // ------------- 显示辅助 -------------
+
+    private string GetStageDisplayName(string? stage)
+    {
+        if (string.IsNullOrWhiteSpace(stage))
+            return "未开始";
+
+        return _stageDisplayNames.TryGetValue(stage, out var name)
+            ? name
+            : stage;
+    }
+
+    private string GetStageTimeText(PipelineStageStatusDto stage)
+    {
+        if (stage.StartedAt == null && stage.FinishedAt == null)
+            return "尚未开始";
+
+        if (stage.StartedAt != null && stage.FinishedAt == null)
+            return $"开始时间：{stage.StartedAt:yyyy-MM-dd HH:mm:ss}";
+
+        if (stage.StartedAt != null && stage.FinishedAt != null)
+            return $"开始：{stage.StartedAt:HH:mm:ss}，结束：{stage.FinishedAt:HH:mm:ss}";
+
+        return string.Empty;
+    }
+
+    private RenderFragment RenderOperationResult(OperationResult? result) => builder =>
+    {
+        if (result is null)
+        {
+            builder.AddContent(0, "暂无结果。");
+            return;
+        }
+
+        if (result.Success)
+        {
+            builder.OpenElement(0, "span");
+            builder.AddAttribute(1, "class", "text-success");
+            builder.AddContent(2, "成功");
+            if (!string.IsNullOrWhiteSpace(result.Message))
+            {
+                builder.AddContent(3, $"（{result.Message}）");
+            }
+            builder.CloseElement();
+        }
+        else
+        {
+            builder.OpenElement(4, "span");
+            builder.AddAttribute(5, "class", "text-danger");
+            builder.AddContent(6, "失败");
+            if (!string.IsNullOrWhiteSpace(result.Message))
+            {
+                builder.AddContent(7, $"（{result.Message}）");
+            }
+            builder.CloseElement();
+        }
+    };
+
+    private RenderFragment RenderOverallStatusBadge(string status) => builder =>
+    {
+        var (css, text) = status switch
+        {
+            "running" => ("badge bg-info text-dark", "运行中"),
+            "success" => ("badge bg-success", "完成"),
+            "failed" => ("badge bg-danger", "失败"),
+            "pending" => ("badge bg-secondary", "待开始"),
+            _ => ("badge bg-light text-dark", status)
+        };
+
+        builder.OpenElement(0, "span");
+        builder.AddAttribute(1, "class", css);
+        builder.AddContent(2, text);
+        builder.CloseElement();
+    };
+
+    private RenderFragment RenderStageStatusBadge(string status) => builder =>
+    {
+        string css;
+        string text;
+
+        switch (status)
+        {
+            case "success":
+                css = "badge bg-success";
+                text = "已完成";
+                break;
+            case "running":
+                css = "badge bg-info text-dark";
+                text = "进行中";
+                break;
+            case "failed":
+                css = "badge bg-danger";
+                text = "失败";
+                break;
+            default:
+                css = "badge bg-secondary";
+                text = "待执行";
+                break;
+        }
+
+        builder.OpenElement(0, "span");
+        builder.AddAttribute(1, "class", css);
+
+        if (status == "running")
+        {
+            builder.OpenElement(2, "span");
+            builder.AddAttribute(3, "class", "spinner-border spinner-border-sm me-1");
+            builder.AddAttribute(4, "role", "status");
+            builder.CloseElement();
+        }
+
+        builder.AddContent(5, text);
+        builder.CloseElement();
+    };
+
+    // ------------- 一键 Pipeline（使用 Scope 避免 DbContext 并发） -------------
+
+    private async Task StartPipelineAsync()
+    {
+        ErrorMessage = null;
+        FinalResult = null;
+        PdfReportUrl = null;
+        ShowPdfPreview = false;
+
+        if (VideoIdInput is null || VideoIdInput <= 0)
+        {
+            ErrorMessage = "请先选择或输入有效的 视频 ID（正整数），可以从“视频列表”中点击选择。";
+            return;
+        }
+
+        if (IsRunning)
+        {
+            return;
+        }
+
+        var videoId = (ulong)VideoIdInput.Value;
+
+        _cts?.Cancel();
+        _cts?.Dispose();
+        _cts = new CancellationTokenSource();
+        var token = _cts.Token;
+
+        IsRunning = true;
+        Progress = null;
+
+        // ✅ 后台执行完整管线：使用独立 Scope，避免和 UI 线程共用 DbContext
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var scope = ScopeFactory.CreateScope();
+                var scopedDemoService = scope.ServiceProvider.GetRequiredService<IDemoService>();
+                var scopedEvalService = scope.ServiceProvider.GetRequiredService<IDemoEvaluationService>();
+
+                var result = await scopedDemoService.RunFullPipelineAsync(videoId);
+
+                string? url = null;
+                if (result.EvaluationResult?.Success == true)
+                {
+                    url = await scopedEvalService.GetSuggestionReportForVideoAsync(videoId);
+                }
+
+                await InvokeAsync(() =>
+                {
+                    FinalResult = result;
+                    PdfReportUrl = url;
+                    ShowPdfPreview = false;
+                });
+            }
+            catch (Exception ex)
+            {
+                await InvokeAsync(() =>
+                {
+                    ErrorMessage = "处理过程中发生异常：" + ex.Message;
+                });
+            }
+            finally
+            {
+                await InvokeAsync(() =>
+                {
+                    IsRunning = false;
+                    StateHasChanged();
+                });
+            }
+        }, token);
+
+        // 启动轮询进度：同样每轮使用独立 Scope
+        _ = PollProgressAsync(videoId, token);
+    }
+
+    private async Task PollProgressAsync(ulong videoId, CancellationToken token)
+    {
+        try
+        {
+            while (!token.IsCancellationRequested)
+            {
+                using (var scope = ScopeFactory.CreateScope())
+                {
+                    var scopedDemoService = scope.ServiceProvider.GetRequiredService<IDemoService>();
+                    var progress = await scopedDemoService.GetPipelineProgressAsync(videoId);
+
+                    await InvokeAsync(() =>
+                    {
+                        Progress = progress;
+                        StateHasChanged();
+                    });
+
+                    if (progress.Status == "success" || progress.Status == "failed")
+                    {
+                        break;
+                    }
+                }
+
+                await Task.Delay(TimeSpan.FromSeconds(2), token);
+            }
+        }
+        catch (TaskCanceledException)
+        {
+            // ignore
+        }
+        catch (Exception ex)
+        {
+            await InvokeAsync(() =>
+            {
+                ErrorMessage = "获取进度失败：" + ex.Message;
+                StateHasChanged();
+            });
+        }
+    }
+
+    private Task CancelPipelineAsync()
+    {
+        _cts?.Cancel();
+        IsRunning = false;
+        ErrorMessage = "已取消处理。";
+        return Task.CompletedTask;
+    }
+
+    private void TogglePdfPreview()
+    {
+        ShowPdfPreview = !ShowPdfPreview;
+    }
+
+    public void Dispose()
+    {
+        _cts?.Cancel();
+        _cts?.Dispose();
+    }
+}

@@ -1,0 +1,45 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+
+    <PropertyGroup>
+        <TargetFramework>net9.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <SatelliteResourceLanguages>en-US</SatelliteResourceLanguages>
+        <PublishReadyToRunComposite>true</PublishReadyToRunComposite>
+    </PropertyGroup>
+
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="9.0.0">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+    </ItemGroup>
+
+
+    <ItemGroup>
+        <ProjectReference Include="..\BehaviorTest.Web.Core\BehaviorTest.Web.Core.csproj"/>
+    </ItemGroup>
+
+
+    <ItemGroup>
+      <Folder Include="wwwroot\processing\" />
+      <Folder Include="wwwroot\processing\外国文学二-0001-韩燕红-A06-阶204_资源模式_资源高清1_1\" />
+      <Folder Include="wwwroot\teachingplan\" />
+      <Folder Include="wwwroot\teachingplan\evaluations\" />
+      <Folder Include="wwwroot\videos\" />
+    </ItemGroup>
+
+
+    <ItemGroup>
+      <_ContentIncludedByDefault Remove="Shared\Shared\MainLayout.razor" />
+      <_ContentIncludedByDefault Remove="Shared\Shared\NavMenu.razor" />
+      <_ContentIncludedByDefault Remove="Shared\Shared\SurveyPrompt.razor" />
+      <_ContentIncludedByDefault Remove="Shared\LoginLayout.razor" />
+      <_ContentIncludedByDefault Remove="Shared\MainLayout.razor" />
+      <_ContentIncludedByDefault Remove="Shared\NavMenu.razor" />
+      <_ContentIncludedByDefault Remove="Shared\RedirectToLogin.razor" />
+      <_ContentIncludedByDefault Remove="Shared\SurveyPrompt.razor" />
+    </ItemGroup>
+
+</Project>

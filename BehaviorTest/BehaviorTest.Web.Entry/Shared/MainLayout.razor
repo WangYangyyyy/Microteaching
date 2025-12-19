@@ -1,0 +1,34 @@
+﻿@inherits LayoutComponentBase
+@inject AjaxService AjaxService
+@inject IJSRuntime JSRuntime
+@inject NavigationManager Navigation
+
+<div class="page">
+    <div class="sidebar">
+        <NavMenu/>
+    </div>
+
+    <div class="main">
+        <div class="top-row px-4">
+            <a href="https://docs.microsoft.com/aspnet/" target="_blank">About</a>
+            <button class="btn btn-link" @onclick="Logout">Logout</button>
+        </div>
+
+        <div class="content px-4">
+            @Body
+        </div>
+    </div>
+</div>
+
+@code {
+    private async Task Logout()
+    {
+        var ajaxOption = new AjaxOption
+        {
+            Url = "/api/user/logout"
+        };
+        await AjaxService.InvokeAsync(ajaxOption);
+        await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "token");
+        Navigation.NavigateTo("/Login", true);
+    }
+}

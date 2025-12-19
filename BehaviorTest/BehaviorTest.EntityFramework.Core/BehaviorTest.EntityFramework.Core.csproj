@@ -1,0 +1,22 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+
+    <PropertyGroup>
+        <TargetFramework>net9.0</TargetFramework>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\BehaviorTest.Core\BehaviorTest.Core.csproj"/>
+    </ItemGroup>
+
+    <ItemGroup>
+      <PackageReference Include="MySql.EntityFrameworkCore" Version="10.0.0-preview" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Update = "database.json">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </None>
+    </ItemGroup>
+
+</Project>

@@ -1,0 +1,731 @@
+﻿@page "/userevaluation"
+@using System.Text.Json
+@* 确保引用了实体命名空间，如果没有请根据项目实际情况调整 *@
+
+@inject IVideoService VideoService
+@inject IJSRuntime JSRuntime
+@inject IAudioService AudioService
+@inject ISummaryService SummaryService
+@inject IClassroomEvaluationService ClassroomEvaluationService
+@inject IQuestionAnswerService QuestionAnswerService 
+@* ✅ 新增注入：问答服务 *@
+
+@implements IAsyncDisposable
+
+<PageTitle>视频上传与课堂模拟</PageTitle>
+
+<h1>视频上传与课堂模拟</h1>
+
+<div class="container">
+    
+    @* ========================================== *@
+    @* 🔽 新增区域：语音课堂模拟 (从 StuTeaQuestion 迁移) *@
+    @* ========================================== *@
+    <div class="row mt-4">
+        <div class="col-md-12">
+            <div class="card border-primary">
+                <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                    <h3 class="mb-0">🎙️ 语音课堂模拟</h3>
+                    <span class="badge bg-light text-dark">状态：@ClassroomStatus</span>
+                </div>
+                <div class="card-body">
+                    
+                    @* 1. 控制面板 *@
+                    <div class="row g-3 align-items-center mb-3">
+                        <div class="col-auto">
+                            <label class="col-form-label">API Base：</label>
+                        </div>
+                        <div class="col-auto">
+                            <input type="text" class="form-control" style="width:250px;" @bind="ApiBase" />
+                        </div>
+                        <div class="col-auto">
+                            <label class="col-form-label">唤醒词：</label>
+                        </div>
+                        <div class="col-auto">
+                            <input type="text" class="form-control" style="width:120px;" @bind="WakeWord" placeholder="同学" />
+                        </div>
+                        <div class="col-auto">
+                            <button class="btn btn-success" @onclick="StartClassroom" disabled="@(ClassroomStatus != "未开始" && ClassroomStatus != "已停止" && ClassroomStatus != "发生错误（见下方）")">
+                                <span class="oi oi-media-play"></span> 开始上课
+                            </button>
+                            <button class="btn btn-danger" @onclick="StopClassroom" disabled="@(ClassroomStatus == "未开始" || ClassroomStatus == "已停止")">
+                                <span class="oi oi-media-stop"></span> 下课停止
+                            </button>
+                        </div>
+                    </div>
+                    
+                    @* 高级设置折叠 (可选) *@
+                    <details class="mb-3">
+                        <summary class="text-muted">高级音频参数设置</summary>
+                        <div class="row g-3 mt-1 p-2 bg-light rounded">
+                            <div class="col-auto"><label>切段(ms):</label><input type="number" class="form-control form-control-sm" style="width:80px" @bind="SilenceMs"/></div>
+                            <div class="col-auto"><label>阈值:</label><input type="number" class="form-control form-control-sm" style="width:70px" @bind="VolumeThreshold"/></div>
+                            <div class="col-auto"><label>自适应:</label><input type="checkbox" class="form-check-input" @bind="UseAdaptiveThreshold"/></div>
+                            <div class="col-auto"><label>底噪裕度:</label><input type="number" class="form-control form-control-sm" style="width:70px" @bind="NoiseMargin"/></div>
+                        </div>
+                    </details>
+
+                    @* 2. 消息提示区 *@
+                    @if (IsThinking)
+                    {
+                        <div class="alert alert-warning d-flex align-items-center p-2 mb-3" role="alert">
+                            <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                            <div><strong>系统：</strong> 同学们正在思考并组织语言（语音生成中，约需等待后端处理）...</div>
+                        </div>
+                    }
+
+                    @* 3. 聊天记录显示区 *@
+                    <div style="background:#f8f9fa; border:1px solid #dee2e6; border-radius:8px; padding:15px; height:300px; overflow-y:auto;">
+                        @foreach (var m in Messages)
+                        {
+                            <div style="@GetMsgStyle(m.Kind)">
+                                <div style="font-weight:bold; margin-bottom:4px;">@m.Title</div>
+                                <div>@m.Text</div>
+                            </div>
+                        }
+                    </div>
+                    
+                    <div class="mt-2 text-muted small">
+                        提示：请说 <b>@WakeWord：你的问题</b> (例如：@WakeWord，牛顿第一定律是什么？)
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    @* ========================================== *@
+    @* 🔽 原有区域：视频管理 (UserEvaluation原有代码) *@
+    @* ========================================== *@
+    <div class="row mt-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header">
+                    <h3>视频管理</h3>
+                </div>
+
+                <div class="card-body">
+
+                    <h5>录制视频流</h5>
+                    <div class="mb-2">
+                        <select class="form-control" @bind="streamUrl">
+                            <option value="">选择或输入流地址</option>
+                            <option value="rtmp://211.82.207.138:1935/hls/school_5_HD">教室5</option>
+                            <option value="rtmp://211.82.207.138:1935/hls/1">教室2</option>
+                        </select>
+                    </div>
+
+                    <div class="d-flex align-items-center flex-wrap">
+                        <button class="btn btn-outline-primary me-2 mb-2" @onclick="() => OpenVideoStream(streamUrl)"
+                                disabled="@string.IsNullOrWhiteSpace(streamUrl)">
+                            <span class="oi oi-play-circle" aria-hidden="true"></span> 打开流
+                        </button>
+                        <div class="mx-3"></div>
+                        <div class="btn-group" role="group">
+                            <button class="btn btn-success me-2 mb-2" @onclick="StartRecordingClicked"
+                                    disabled="@((string.IsNullOrWhiteSpace(streamUrl)) || isRecording)">
+                                <span class="oi oi-media-record" aria-hidden="true"></span> 开始录制
+                            </button>
+                            <button class="btn btn-danger me-2 mb-2" @onclick="StopRecordingClicked"
+                                    disabled="@(!isRecording || currentRecordingId == null)">
+                                <span class="oi oi-media-stop" aria-hidden="true"></span> 停止录制
+                            </button>
+                        </div>
+                        <div class="mx-3"></div>
+
+                        <span class="ms-auto mb-2 align-self-center">
+                            @if (isRecording)
+                            {
+                                <span class="badge bg-danger me-2">录制中</span>
+                                @if (recordingStartOk == true)
+                                {
+                                    <span class="badge bg-success">已检测到文件</span>
+                                }
+                                else if (recordingStartOk == false)
+                                {
+                                    <span class="badge bg-warning text-dark">未检测到文件，可能失败</span>
+                                }
+                            }
+                            else if (currentRecordingId != null)
+                            {
+                                <span class="badge bg-secondary">已停止（待保存）</span>
+                            }
+                        </span>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h3>已上传的视频</h3>
+                    <button class="btn btn-secondary btn-sm" @onclick="LoadVideos">
+                        <span class="oi oi-reload" aria-hidden="true"></span> 刷新
+                    </button>
+                </div>
+                <div class="card-body">
+                    @if (videos == null)
+                    {
+                        <p><em>加载中...</em></p>
+                    }
+                    else if (!videos.Any())
+                    {
+                        <p class="text-muted">暂无已上传的视频</p>
+                    }
+                    else
+                    {
+                        <div class="row">
+                            @foreach (var video in videos)
+                            {
+                                <div class="col-md-4 mb-4">
+                                    <div class="card h-100 d-flex flex-column">
+                                        <div class="card-body">
+                                            <h5 class="card-title">@video.FileName</h5>
+                                            <video width="100%" controls>
+                                                <source src="@video.FilePath" type="@video.ContentType">
+                                                您的浏览器不支持视频标签。
+                                            </video>
+                                            <p class="card-text mt-2">
+                                                <small class="text-muted">
+                                                    上传时间: @video.UploadTime.ToString("yyyy-MM-dd HH:mm:ss")<br/>
+                                                    文件大小: @FormatFileSize(video.FileSize)
+                                                </small>
+                                            </p>
+                                        </div>
+
+                                        <div class="card-footer mt-auto d-flex flex-wrap">
+                                            <div>
+                                                <button class="btn btn-warning btn-sm me-2 mb-2"
+                                                        @onclick="() => StartCutting(video.Id)">
+                                                    <span class="oi oi-cut" aria-hidden="true"></span> 切割
+                                                </button>
+                                                <button class="btn btn-info btn-sm me-2 mb-2"
+                                                        @onclick="() => StartConvertingToAudio(video.Id)">
+                                                    <span class="oi oi-audio" aria-hidden="true"></span> 转换为音频
+                                                </button>
+                                                <button class="btn btn-success btn-sm me-2 mb-2"
+                                                        @onclick="() => StartTranscribing(video.Id)">
+                                                    <span class="oi oi-microphone" aria-hidden="true"></span> 转录
+                                                </button>
+                                                
+                                                
+                                            </div>
+
+                                            <div class="ms-auto">
+                                                <button class="btn btn-primary btn-sm me-2 mb-2"
+                                                        @onclick="() => StartGeneratingSummaries(video.Id)">
+                                                    <span class="oi oi-document" aria-hidden="true"></span> 生成摘要
+                                                </button>
+                                                <button class="btn btn-secondary btn-sm me-2 mb-2"
+                                                        @onclick="() => StartEvaluatingTeaching(video.Id)">
+                                                    <span class="oi oi-bar-chart" aria-hidden="true"></span> 教学评估
+                                                </button>
+                                                <button class="btn btn-danger btn-sm mb-2"
+                                                        @onclick="() => DeleteVideo(video.Id)">
+                                                    <span class="oi oi-trash" aria-hidden="true"></span> 删除
+                                                </button>
+                                                <button class="btn btn-outline-secondary btn-sm me-2 mb-2"
+                                                        @onclick="() => DownloadEvaluation(video.Id)">
+                                                    <span class="oi oi-cloud-download" aria-hidden="true"></span> 下载评估
+                                                </button>
+                                            </div>
+
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    // ==========================================
+    // 1. 语音课堂模拟变量 (从 StuTeaQuestion 迁移)
+    // ==========================================
+    private IJSObjectReference? _module;
+    private DotNetObjectReference<UserEvaluation>? _dotNetRef;
+
+    public string ApiBase { get; set; } = "http://118.230.212.160:9010";
+    public string WakeWord { get; set; } = "同学";
+    public int SilenceMs { get; set; } = 1800;
+    public int VolumeThreshold { get; set; } = 2;
+    public bool UseAdaptiveThreshold { get; set; } = false; // 建议默认关闭自适应
+    public int NoiseSampleMs { get; set; } = 1000;
+    public int NoiseMargin { get; set; } = 2;
+    public int MinRecordMs { get; set; } = 1200;
+    public int SilentFrames { get; set; } = 10;
+    public int SmoothWindow { get; set; } = 5;
+    public int SessionId { get; set; } = 0;
+
+    public string ClassroomStatus { get; set; } = "未开始";
+    public bool IsThinking { get; set; } = false;
+    public List<ChatMsg> Messages { get; set; } = new();
+    private string? _currentQuestion;
+    private DateTime _currentQuestionAt = DateTime.UtcNow;
+
+    // ==========================================
+    // 2. 视频管理变量 (UserEvaluation 原有)
+    // ==========================================
+    private List<VideoInfoDto> videos = new();
+    private string streamUrl = string.Empty;
+    private Guid? currentRecordingId = null;
+    private bool isRecording = false;
+    private bool? recordingStartOk = null;
+
+
+    // ==========================================
+    // 生命周期方法
+    // ==========================================
+    
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadVideos();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // 初始化 JS 模块和 DotNet 引用
+            _module = await JSRuntime.InvokeAsync<IJSObjectReference>("import", "./js/classroomAudio.js");
+            _dotNetRef = DotNetObjectReference.Create(this);
+        }
+    }
+    
+    // ==========================================
+    // 3. 语音课堂逻辑方法 (Start/Stop)
+    // ==========================================
+
+    private async Task StartClassroom()
+    {
+        if (_module is null || _dotNetRef is null) return;
+        
+        Messages.Add(new ChatMsg("system", "系统", "开始监听（请授予麦克风权限）..."));
+        
+        var options = new
+        {
+            SilenceMs = SilenceMs,
+            VolumeThreshold = VolumeThreshold,
+            UseAdaptiveThreshold = UseAdaptiveThreshold,
+            NoiseSampleMs = NoiseSampleMs,
+            NoiseMargin = NoiseMargin,
+            MinRecordMs = MinRecordMs,
+            SilentFrames = SilentFrames,
+            SmoothWindow = SmoothWindow
+        };
+
+        await _module.InvokeVoidAsync(
+            "startClassroomLoop",
+            _dotNetRef,
+            ApiBase,
+            WakeWord,
+            SilenceMs,
+            SessionId,
+            options
+        );
+    }
+
+    private async Task StopClassroom()
+    {
+        if (_module is null) return;
+        await _module.InvokeVoidAsync("stopClassroomLoop");
+        ClassroomStatus = "已停止";
+        Messages.Add(new ChatMsg("system", "系统", "已停止监听"));
+        StateHasChanged();
+    }
+
+    private string GetMsgStyle(string kind)
+    {
+        var baseStyle = "margin-bottom:10px; padding:10px; border-radius:6px;";
+        return kind switch
+        {
+            "teacher" => baseStyle + " background:#e3f2fd; border-left:4px solid #4361ee;",
+            "student" => baseStyle + " background:#f1f8e9; border-left:4px solid #8bc34a;",
+            "error" => baseStyle + " background:#ffebee; border-left:4px solid #e53935;",
+            _ => baseStyle + " background:#f5f5f5; border-left:4px solid #999;",
+        };
+    }
+
+    // ==========================================
+    // 4. JS Invokable 回调 (处理录音、识别、回答)
+    // ==========================================
+
+    [JSInvokable]
+    public Task SetStatus(string s)
+    {
+        ClassroomStatus = s;
+        InvokeAsync(StateHasChanged);
+        return Task.CompletedTask;
+    }
+
+    [JSInvokable]
+    public Task OnAsrRaw(string raw)
+    {
+        if (!string.IsNullOrWhiteSpace(raw))
+            // 可以选择显示 raw，这里为了清爽暂时屏蔽，或只显示在 Log
+            // Messages.Add(new ChatMsg("system", "ASR原文", raw));
+        InvokeAsync(StateHasChanged);
+        return Task.CompletedTask;
+    }
+
+    [JSInvokable]
+    public Task OnTeacherQuestion(string question)
+    {
+        Messages.Add(new ChatMsg("teacher", "老师提问", question));
+        _currentQuestion = question;
+        _currentQuestionAt = DateTime.UtcNow;
+        IsThinking = true; // 开启思考状态
+        InvokeAsync(StateHasChanged);
+        return Task.CompletedTask;
+    }
+
+    [JSInvokable]
+    public async Task OnStudentAnswers(JsonElement answers)
+    {
+        IsThinking = false; // 关闭思考状态
+        InvokeAsync(StateHasChanged);
+
+        var collected = new List<BehaviorTest.Application.RBAC.Services.DTO.StudentAnswerDto>();
+        var audioList = new List<string>();
+
+        if (answers.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var a in answers.EnumerateArray())
+            {
+                var name = a.TryGetProperty("name", out var n) ? n.GetString() : "学生";
+                var role = a.TryGetProperty("role", out var r) ? r.GetString() : "";
+                var ans = a.TryGetProperty("answer", out var c) ? c.GetString() : "";
+                var audio = a.TryGetProperty("audio_base64", out var au) ? au.GetString() : "";
+
+                Messages.Add(new ChatMsg("student", $"{name}（{role}）", ans ?? ""));
+
+                if (!string.IsNullOrEmpty(audio))
+                {
+                    audioList.Add(audio);
+                }
+
+                collected.Add(new BehaviorTest.Application.RBAC.Services.DTO.StudentAnswerDto
+                {
+                    Name = name,
+                    Role = role,
+                    Answer = ans
+                    // 不存音频 Base64 到数据库
+                });
+            }
+        }
+
+        // 调用 JS 播放声音
+        if (audioList.Count > 0 && _module is not null)
+        {
+            await _module.InvokeVoidAsync("playStudentAudios", audioList);
+        }
+
+        // 保存到数据库
+        if (!string.IsNullOrWhiteSpace(_currentQuestion))
+        {
+            try
+            {
+                var saveResult = await QuestionAnswerService.SaveAsync(new QaSaveRequest
+                {
+                    SessionId = SessionId == 0 ? null : SessionId,
+                    Question = _currentQuestion!,
+                    AskedAt = _currentQuestionAt,
+                    Answers = collected
+                });
+                if (!saveResult.Success) 
+                    Messages.Add(new ChatMsg("error", "保存失败", saveResult.Message));
+            }
+            catch (Exception ex)
+            {
+                Messages.Add(new ChatMsg("error", "保存异常", ex.Message));
+            }
+        }
+        else
+        {
+            Messages.Add(new ChatMsg("error", "提示", "接收到回答，但未获取到上一个老师提问。"));
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public Task OnError(string message)
+    {
+        Messages.Add(new ChatMsg("error", "错误", message));
+        ClassroomStatus = "发生错误（见下方）";
+        InvokeAsync(StateHasChanged);
+        return Task.CompletedTask;
+    }
+
+
+    // ==========================================
+    // 5. 视频管理原有方法
+    // ==========================================
+
+    private async Task LoadVideos()
+    {
+        videos = await VideoService.GetAllVideosAsync();
+        StateHasChanged();
+    }
+
+    private async Task DeleteVideo(ulong id)
+    {
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", "确定要删除这个视频吗？");
+        if (confirmed)
+        {
+            var result = await VideoService.DeleteVideoAsync(id);
+            if (result.Success)
+            {
+                await LoadVideos();
+            }
+            else
+            {
+                await JSRuntime.InvokeVoidAsync("alert", $"删除失败：{result.Message}");
+            }
+        }
+    }
+
+    private async Task StartCutting(ulong videoId)
+    {
+        try
+        {
+            var result = await VideoService.CutVideoAsync(videoId);
+            if (result.Success) await JSRuntime.InvokeVoidAsync("alert", "视频切割完成！");
+            else await JSRuntime.InvokeVoidAsync("alert", $"切割失败：{result.Message}");
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"切割出错：{ex.Message}");
+        }
+    }
+
+    private async Task StartConvertingToAudio(ulong videoId)
+    {
+        try
+        {
+            var result = await AudioService.ConvertAllSegmentsForVideoAsync(videoId);
+            string finalMessage = (result.TotalFiles == 0) ? "没有找到可转换的视频。" : $"转换完成！\n总数: {result.TotalFiles}\n成功: {result.SuccessCount}\n失败: {result.FailureCount}";
+            if (result.FailedMessages.Any()) finalMessage += "\n\n失败详情:\n" + string.Join("\n", result.FailedMessages);
+            await JSRuntime.InvokeVoidAsync("alert", finalMessage);
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"程序发生严重错误：{ex.Message}");
+        }
+    }
+
+    private async Task StartTranscribing(ulong videoId)
+    {
+        try
+        {
+            var result = await AudioService.TranscribeAllSegmentsForVideoAsync(videoId);
+            string finalMessage = (result.TotalFiles == 0) ? "没有找到可转录的片段。" : $"转录完成！\n总数: {result.TotalFiles}\n成功: {result.SuccessCount}\n失败: {result.FailureCount}";
+            if (result.FailedMessages.Any()) finalMessage += "\n\n失败详情:\n" + string.Join("\n", result.FailedMessages);
+            await JSRuntime.InvokeVoidAsync("alert", finalMessage);
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"转录出错：{ex.Message}");
+        }
+    }
+
+    private async Task StartGeneratingSummaries(ulong videoId)
+    {
+        try
+        {
+            var result = await SummaryService.GenerateSummariesForVideoAsync(videoId);
+            string finalMessage = (result.TotalFiles == 0) ? "没有找到转录记录。" : $"摘要生成完成！\n总数: {result.TotalFiles}\n成功: {result.SuccessCount}\n失败: {result.FailureCount}";
+            if (result.FailedMessages.Any()) finalMessage += "\n\n失败详情:\n" + string.Join("\n", result.FailedMessages);
+            await JSRuntime.InvokeVoidAsync("alert", finalMessage);
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"生成摘要出错：{ex.Message}");
+        }
+    }
+
+    private async Task StartEvaluatingTeaching(ulong videoId)
+    {
+        try
+        {
+            var result = await ClassroomEvaluationService.EvaluateAndSaveReportForVideoAsync(videoId);
+            if (result.Success) await JSRuntime.InvokeVoidAsync("alert", result.Message);
+            else await JSRuntime.InvokeVoidAsync("alert", $"评估失败：{result.Message}");
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"评估出错：{ex.Message}");
+        }
+    }
+
+    private async Task OpenVideoStream(string filePath)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(filePath)) return;
+            if (filePath.StartsWith("rtmp://", StringComparison.OrdinalIgnoreCase) ||
+                filePath.StartsWith("rtmps://", StringComparison.OrdinalIgnoreCase))
+            {
+                await JSRuntime.InvokeVoidAsync("open", filePath, "_blank");
+                return;
+            }
+            await JSRuntime.InvokeVoidAsync("open", filePath, "_blank");
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"打开视频流失败：{ex.Message}");
+        }
+    }
+
+    private async Task StartRecordingClicked()
+    {
+        if (string.IsNullOrWhiteSpace(streamUrl))
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "请输入流地址后再开始录制。");
+            return;
+        }
+
+        recordingStartOk = null;
+        StateHasChanged();
+
+        var result = await VideoService.StartRecordingAsync(streamUrl);
+
+        if (!result.Success)
+        {
+            recordingStartOk = false;
+            isRecording = false;
+            await JSRuntime.InvokeVoidAsync("alert", $"开始录制失败：{result.Message}");
+            StateHasChanged();
+            return;
+        }
+
+        Guid parsedId;
+        var gotId = false;
+
+        if (result.Data is JsonElement je)
+        {
+            if (je.ValueKind == JsonValueKind.Object && je.TryGetProperty("RecordingId", out var rid) && rid.ValueKind == JsonValueKind.String && Guid.TryParse(rid.GetString(), out parsedId))
+            {
+                currentRecordingId = parsedId;
+                gotId = true;
+            }
+            else if (je.ValueKind == JsonValueKind.String && Guid.TryParse(je.GetString(), out parsedId))
+            {
+                currentRecordingId = parsedId;
+                gotId = true;
+            }
+        }
+        else if (result.Data != null)
+        {
+            try
+            {
+                var json = JsonSerializer.Serialize(result.Data);
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("RecordingId", out var rid) && rid.ValueKind == JsonValueKind.String && Guid.TryParse(rid.GetString(), out parsedId))
+                {
+                    currentRecordingId = parsedId;
+                    gotId = true;
+                }
+            }
+            catch {}
+        }
+
+        isRecording = true;
+        recordingStartOk = true;
+
+        var msg = "已开始录制。";
+        if (!gotId) msg = "已开始录制（未获取到录制ID，可能无法停止）。";
+
+        await JSRuntime.InvokeVoidAsync("alert", msg);
+        StateHasChanged();
+    }
+
+    private async Task StopRecordingClicked()
+    {
+        if (!isRecording || currentRecordingId == null)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "当前没有正在进行的录制。");
+            return;
+        }
+
+        var result = await VideoService.StopRecordingAsync(currentRecordingId.Value);
+        if (!result.Success)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"停止录制失败：{result.Message}");
+        }
+        else
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "停止录制并保存成功。");
+            await LoadVideos(); 
+        }
+
+        currentRecordingId = null;
+        isRecording = false;
+        recordingStartOk = null; 
+        StateHasChanged();
+    }
+
+    private async Task DownloadEvaluation(ulong videoId)
+    {
+        try
+        {
+            var relativePath = await ClassroomEvaluationService.GetEvaluationReportForVideoAsync(videoId);
+            if (string.IsNullOrWhiteSpace(relativePath))
+            {
+                await JSRuntime.InvokeVoidAsync("alert", "未找到评估报告。");
+                return;
+            }
+            var fileName = Path.GetFileName(relativePath);
+            if (string.IsNullOrWhiteSpace(fileName)) fileName = $"evaluation_{videoId}.md";
+            await JSRuntime.InvokeVoidAsync("forceDownload", relativePath, fileName);
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"下载评估出错：{ex.Message}");
+        }
+    }
+
+    private string FormatFileSize(long bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB" };
+        double len = bytes;
+        int order = 0;
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len = len / 1024;
+        }
+        return $"{len:0.##} {sizes[order]}";
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        // 销毁语音课堂的资源
+        try { if (_module is not null) await _module.InvokeVoidAsync("stopClassroomLoop"); } catch {}
+        _dotNetRef?.Dispose();
+        if (_module is not null) await _module.DisposeAsync();
+    }
+    
+    // ==========================================
+    // 内部类 (Dto)
+    // ==========================================
+    public record ChatMsg(string Kind, string Title, string Text);
+    
+    public class StudentAnswerDto
+    {
+        public string? Name { get; set; }
+        public string? Role { get; set; }
+        public string? Answer { get; set; }
+        // 不需要在这里定义 Audio_Base64，因为它只用于传输播放，不存数据库
+    }
+}

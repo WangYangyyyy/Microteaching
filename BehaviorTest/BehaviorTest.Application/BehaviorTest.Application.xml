@@ -1,0 +1,534 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>BehaviorTest.Application</name>
+    </assembly>
+    <members>
+        <member name="P:BehaviorTest.Application.RBAC.Entity.AuthEntity.Id">
+            <summary>
+            主键 Id
+            </summary>
+        </member>
+        <member name="P:BehaviorTest.Application.RBAC.Entity.AuthEntity.Role">
+            <summary>
+            角色归属
+            </summary>
+        </member>
+        <member name="P:BehaviorTest.Application.RBAC.Entity.AuthEntity.Auth">
+            <summary>
+            权限范围
+            </summary>
+        </member>
+        <member name="T:BehaviorTest.Application.RBAC.Entity.UserEntity">
+            <summary>
+            用户表
+            </summary>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.ClassroomEvaluationService.ResetConversation">
+            <summary>
+            重置对话历史，开始一次新的评估
+            </summary>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.ClassroomEvaluationService.EvaluateComprehensiveAsync(System.String)">
+            <summary>
+            执行一个完整的四维度综合评估
+            </summary>
+            <param name="transcriptContent">课堂转录内容</param>
+            <returns>包含所有评估结果的对象</returns>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.ClassroomEvaluationService.QuickEvaluateAsync(System.String)">
+            <summary>
+            执行一次快速评估，所有步骤在一次API调用中完成
+            </summary>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.ClassroomEvaluationService.EvaluateDimensionAsync(System.String,System.String,System.Int32)">
+            <summary>
+            评估单一维度的通用方法
+            </summary>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.ClassroomEvaluationService.CallChatApiAsync(System.String)">
+            <summary>
+            私有的核心方法，用于调用 Chat Completions API
+            </summary>
+        </member>
+        <!-- Badly formed XML comment ignored for member "M:BehaviorTest.Application.RBAC.Services.ClassroomEvaluationService.EvaluateAndSaveReportForVideoAsync(System.UInt64)" -->
+        <member name="T:BehaviorTest.Application.RBAC.Services.DemoEvaluationService">
+            <summary>
+            Demo 专用的课堂“建议”服务：
+            - 基于邯郸学院理论课评价标准（6 个观察点、21 个条目）
+            - 不打分，只生成改进建议报告
+            - 报告最终以 PDF 形式保存
+            </summary>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.DemoEvaluationService.ResetConversation">
+            <summary>重置对话历史，并注入 Demo 的系统提示词</summary>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.DemoEvaluationService.SuggestAsync(System.String)">
+            <summary>
+            对一段完整的课堂文本生成“建议报告”（六个观察点 + 综合报告）
+            </summary>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.DemoEvaluationService.EvaluateAndSaveSuggestionsForVideoAsync(System.UInt64)">
+            <summary>
+            按 videoId 汇总 summaries -> 生成建议 -> 保存为 PDF 到 processing/&lt;video&gt;/evaluations
+            </summary>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.DemoEvaluationService.GetSuggestionReportForVideoAsync(System.UInt64)">
+            <summary>
+            获取指定视频最新的 Demo 建议 PDF 报告 URL（复制到 wwwroot/evaluations 下）
+            </summary>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.DemoEvaluationService.CallChatApiAsync(System.String)">
+            <summary>调用 Chat Completions API，并维护对话历史</summary>
+        </member>
+        <member name="T:BehaviorTest.Application.RBAC.Services.DemoService.DemoPrompts">
+            <summary>
+            专门为 DemoEvaluationService 准备的提示词。
+            基于《邯郸学院课堂教学评价标准（理论课）》，
+            只输出“改进建议”，不输出任何分数。
+            </summary>
+        </member>
+        <member name="F:BehaviorTest.Application.RBAC.Services.DemoService.DemoPrompts.SystemPrompt">
+            <summary>
+            系统提示词：固定设定角色和评价标准（六个观察点、21 条标准）
+            </summary>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.DemoService.DemoPrompts.GetTranscriptSubmissionMessage(System.String)">
+            <summary>
+            把转录/摘要内容送进上下文
+            </summary>
+        </member>
+        <member name="F:BehaviorTest.Application.RBAC.Services.DemoService.DemoPrompts.FinalSuggestionReportPrompt">
+            <summary>
+            最终的综合建议报告
+            </summary>
+        </member>
+        <member name="T:BehaviorTest.Application.RBAC.Services.DemoService.DemoService">
+            <summary>
+            Demo 页面一键处理服务：
+            切割 -> 转音频 -> 转录 -> 摘要 -> 课堂评价
+            并把每一步写入 pipeline_runs 表，方便前端显示进度
+            </summary>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.DemoService.DemoService.RunFullPipelineAsync(System.UInt64)">
+            <summary>
+            一键执行完整链路（按顺序同步执行）
+            </summary>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.DemoService.DemoService.GetPipelineProgressAsync(System.UInt64)">
+            <summary>
+            前端轮询进度条时调用这个接口
+            </summary>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.DemoService.DemoService.HasStageSucceededBeforeAsync(System.UInt64,System.String)">
+            <summary>
+            判断某个阶段是否已经在历史运行中成功过（基于文件检测）
+            </summary>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.DemoService.DemoService.HasFilesWithExtensions(System.String,System.String[])">
+            <summary>
+            检查目录中是否存在指定后缀文件
+            </summary>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.DemoService.DemoService.MarkStageSkippedAsync(System.UInt64,System.String,System.String,System.String)">
+            <summary>
+            本次运行直接标记某个阶段为“已跳过但视为成功”
+            不调用真实的业务逻辑，只写 pipeline_runs 记录
+            </summary>
+        </member>
+        <member name="T:BehaviorTest.Application.RBAC.Services.DemoService.DTO.DemoPipelineResultDto">
+            <summary>
+            一键处理的整体结果，前端想看详细信息可以用这个
+            </summary>
+        </member>
+        <member name="P:BehaviorTest.Application.RBAC.Services.DemoService.DTO.DemoPipelineResultDto.CutResult">
+            <summary>切割结果</summary>
+        </member>
+        <member name="P:BehaviorTest.Application.RBAC.Services.DemoService.DTO.DemoPipelineResultDto.AudioConversionResult">
+            <summary>视频片段转音频结果（批量）</summary>
+        </member>
+        <member name="P:BehaviorTest.Application.RBAC.Services.DemoService.DTO.DemoPipelineResultDto.TranscriptionResult">
+            <summary>音频转录结果（批量）</summary>
+        </member>
+        <member name="P:BehaviorTest.Application.RBAC.Services.DemoService.DTO.DemoPipelineResultDto.SummaryResult">
+            <summary>摘要生成结果（批量）</summary>
+        </member>
+        <member name="P:BehaviorTest.Application.RBAC.Services.DemoService.DTO.DemoPipelineResultDto.EvaluationResult">
+            <summary>课堂评价结果（生成报告）</summary>
+        </member>
+        <member name="T:BehaviorTest.Application.RBAC.Services.DemoService.DTO.PipelineProgressDto">
+            <summary>
+            整体进度信息
+            </summary>
+        </member>
+        <member name="P:BehaviorTest.Application.RBAC.Services.DemoService.DTO.PipelineProgressDto.TotalStages">
+            <summary>总阶段数（目前固定 5 步）</summary>
+        </member>
+        <member name="P:BehaviorTest.Application.RBAC.Services.DemoService.DTO.PipelineProgressDto.CompletedStages">
+            <summary>已完成阶段数（success 的数量）</summary>
+        </member>
+        <member name="P:BehaviorTest.Application.RBAC.Services.DemoService.DTO.PipelineProgressDto.CurrentStage">
+            <summary>当前阶段（可用于高亮步骤条）</summary>
+        </member>
+        <member name="P:BehaviorTest.Application.RBAC.Services.DemoService.DTO.PipelineProgressDto.Status">
+            <summary>整体状态：running / success / failed / pending</summary>
+        </member>
+        <member name="P:BehaviorTest.Application.RBAC.Services.DemoService.DTO.PipelineProgressDto.Progress">
+            <summary>0~1 的进度值，前端可以直接用来算百分比</summary>
+        </member>
+        <member name="P:BehaviorTest.Application.RBAC.Services.DemoService.DTO.PipelineProgressDto.Stages">
+            <summary>各阶段的详细状态</summary>
+        </member>
+        <member name="T:BehaviorTest.Application.RBAC.Services.DemoService.DTO.PipelineStageStatusDto">
+            <summary>
+            单个阶段的状态，用于进度条和步骤条
+            </summary>
+        </member>
+        <member name="T:BehaviorTest.Application.RBAC.Services.DemoService.IDemoEvaluationService">
+            <summary>
+            专门为 Demo 页面准备的“建议型”课堂评价服务：
+            - 不再输出分数，而是输出改进建议报告
+            </summary>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.DemoService.IDemoEvaluationService.ResetConversation">
+            <summary>
+            重置对话历史，开始一次新的建议生成流程
+            </summary>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.DemoService.IDemoEvaluationService.SuggestAsync(System.String)">
+            <summary>
+            对一段完整的课堂转录文本生成建议（四个维度的综合建议）
+            </summary>
+            <param name="transcriptContent">课堂转录/摘要合并后的文本</param>
+            <returns>Markdown 格式的建议报告</returns>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.DemoService.IDemoEvaluationService.EvaluateAndSaveSuggestionsForVideoAsync(System.UInt64)">
+            <summary>
+            根据 VideoId 汇总 summaries -> 调用大模型生成建议 -> 保存到 processing/&lt;video&gt;/evaluations 目录
+            </summary>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.DemoService.IDemoEvaluationService.GetSuggestionReportForVideoAsync(System.UInt64)">
+            <summary>
+            获取指定视频最新的一份“建议报告”访问路径（返回 wwwroot 下的相对 URL）
+            </summary>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.DemoService.IDemoService.RunFullPipelineAsync(System.UInt64)">
+            <summary>
+            对指定视频执行完整处理链路（同步顺序执行）
+            </summary>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.DemoService.IDemoService.GetPipelineProgressAsync(System.UInt64)">
+            <summary>
+            查询指定视频的处理进度，用于进度条显示
+            </summary>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.DesignEvaluationService.UploadTeachingPlanAsync(Microsoft.AspNetCore.Components.Forms.IBrowserFile)">
+            <summary>
+            上传导学案文件到 wwwroot/teachingplan，并在 lesson_plans 表插入一条记录
+            </summary>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.DesignEvaluationService.EvaluateDesignAsync(System.String)">
+            <summary>
+            读取 Word 文档内容，发送到大模型评分，并把结果写入 evaluations 表
+            </summary>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.DesignEvaluationService.ExtractTextFromDocx(System.String)">
+            <summary>
+            从 .docx 中提取纯文本
+            </summary>
+        </member>
+        <member name="P:BehaviorTest.Application.RBAC.Services.DTO.EvaluationResultDto.Score">
+            <summary>
+            （可选）旧字段，如果不用可以删除
+            </summary>
+        </member>
+        <member name="P:BehaviorTest.Application.RBAC.Services.DTO.EvaluationResultDto.Report">
+            <summary>
+            （可选）综合报告文本，如果不用也可以删掉
+            </summary>
+        </member>
+        <member name="P:BehaviorTest.Application.RBAC.Services.DTO.EvaluationResultDto.TotalScore">
+            <summary>
+            总分（0-100），对应 JSON: total_score
+            </summary>
+        </member>
+        <member name="P:BehaviorTest.Application.RBAC.Services.DTO.EvaluationResultDto.PhilosophyScore">
+            <summary>
+            教学理念与目标，对应 JSON: philosophy_score
+            </summary>
+        </member>
+        <member name="P:BehaviorTest.Application.RBAC.Services.DTO.EvaluationResultDto.ContentScore">
+            <summary>
+            教学内容，对应 JSON: content_score
+            </summary>
+        </member>
+        <member name="P:BehaviorTest.Application.RBAC.Services.DTO.EvaluationResultDto.ProcessScore">
+            <summary>
+            教学过程，对应 JSON: process_score
+            </summary>
+        </member>
+        <member name="P:BehaviorTest.Application.RBAC.Services.DTO.EvaluationResultDto.EffectScore">
+            <summary>
+            教学效果预期，对应 JSON: effect_score
+            </summary>
+        </member>
+        <member name="P:BehaviorTest.Application.RBAC.Services.DTO.EvaluationResultDto.Comment">
+            <summary>
+            综合评语，对应 JSON: comment
+            </summary>
+        </member>
+        <member name="P:BehaviorTest.Application.RBAC.Services.DTO.LoginDTO.Account">
+            <summary>
+            用户名
+            </summary>
+            <example>admin</example>
+        </member>
+        <member name="P:BehaviorTest.Application.RBAC.Services.DTO.LoginDTO.Password">
+            <summary>
+            密码
+            </summary>
+            <example>admin</example>
+        </member>
+        <member name="T:BehaviorTest.Application.RBAC.Services.DTO.OperationResult">
+            <summary>
+            操作结果
+            </summary>
+        </member>
+        <member name="P:BehaviorTest.Application.RBAC.Services.DTO.OperationResult.Success">
+            <summary>
+            是否成功
+            </summary>
+        </member>
+        <member name="P:BehaviorTest.Application.RBAC.Services.DTO.OperationResult.Message">
+            <summary>
+            消息
+            </summary>
+        </member>
+        <member name="P:BehaviorTest.Application.RBAC.Services.DTO.OperationResult.Data">
+            <summary>
+            数据
+            </summary>
+        </member>
+        <member name="P:BehaviorTest.Application.RBAC.Services.DTO.QaEvaluationRequest.SessionId">
+            <summary>
+            课堂 sessionId，留空则取最近记录
+            </summary>
+        </member>
+        <member name="P:BehaviorTest.Application.RBAC.Services.DTO.QaEvaluationRequest.QaIds">
+            <summary>
+            指定的问答记录 Id 列表，优先于 SessionId
+            </summary>
+        </member>
+        <member name="P:BehaviorTest.Application.RBAC.Services.DTO.QaEvaluationRequest.Take">
+            <summary>
+            拉取条数
+            </summary>
+        </member>
+        <member name="P:BehaviorTest.Application.RBAC.Services.DTO.QaEvaluationRequest.SystemPrompt">
+            <summary>
+            可选自定义系统提示
+            </summary>
+        </member>
+        <member name="T:BehaviorTest.Application.RBAC.Services.DTO.VideoInfoDto">
+            <summary>
+            视频信息传输对象
+            </summary>
+        </member>
+        <member name="P:BehaviorTest.Application.RBAC.Services.DTO.VideoInfoDto.Id">
+            <summary>
+            视频ID
+            </summary>
+        </member>
+        <member name="P:BehaviorTest.Application.RBAC.Services.DTO.VideoInfoDto.FileName">
+            <summary>
+            文件名
+            </summary>
+        </member>
+        <member name="P:BehaviorTest.Application.RBAC.Services.DTO.VideoInfoDto.FilePath">
+            <summary>
+            文件访问路径
+            </summary>
+        </member>
+        <member name="P:BehaviorTest.Application.RBAC.Services.DTO.VideoInfoDto.FileSize">
+            <summary>
+            文件大小（字节）
+            </summary>
+        </member>
+        <member name="P:BehaviorTest.Application.RBAC.Services.DTO.VideoInfoDto.ContentType">
+            <summary>
+            内容类型
+            </summary>
+        </member>
+        <member name="P:BehaviorTest.Application.RBAC.Services.DTO.VideoInfoDto.UploadTime">
+            <summary>
+            上传时间
+            </summary>
+        </member>
+        <member name="P:BehaviorTest.Application.RBAC.Services.DTO.VideoInfoDto.Notes">
+            <summary>
+            备注
+            </summary>
+        </member>
+        <member name="P:BehaviorTest.Application.RBAC.Services.DTO.VideoInfoDto.Status">
+            <summary>
+            状态
+            </summary>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.IAudioService.ConvertAllSegmentsForVideoAsync(System.UInt64)">
+            <summary>
+            根据 VideoId 转换所有关联的视频片段
+            </summary>
+            <param name="videoId">视频的ID</param>
+            <returns>批量转换结果</returns>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.IAudioService.TranscribeAudioFileAsync(System.String,System.String)">
+            <summary>
+            转录音频文件
+            </summary>
+            <param name="audioPath">音频文件路径</param>
+            <param name="outputDir">输出目录</param>
+            <returns>操作结果</returns>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.IClassroomEvaluationService.ResetConversation">
+            <summary>
+            重置对话历史，开始一次新的评估
+            </summary>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.IClassroomEvaluationService.EvaluateComprehensiveAsync(System.String)">
+            <summary>
+            执行一个完整的四维度综合评估
+            </summary>
+            <param name="transcriptContent">课堂转录内容</param>
+            <returns>包含所有评估结果的对象</returns>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.IClassroomEvaluationService.QuickEvaluateAsync(System.String)">
+            <summary>
+            执行一次快速评估，所有步骤在一次API调用中完成
+            </summary>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.IClassroomEvaluationService.EvaluateAndSaveReportForVideoAsync(System.UInt64)">
+            <summary>
+             根据 VideoId 评估并保存报告
+            </summary>
+            <param name="videoId"></param>
+            <returns></returns>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.IDesignEvaluationService.UploadTeachingPlanAsync(Microsoft.AspNetCore.Components.Forms.IBrowserFile)">
+            <summary>
+            上传导学案文件到wwwroot/teachingplan目录
+            </summary>
+            <param name="file">上传的文件</param>
+            <returns>文件保存路径</returns>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.IDesignEvaluationService.EvaluateDesignAsync(System.String)">
+            <summary>
+            读取Word文档内容，发送到OpenAI接口进行打分
+            </summary>
+            <param name="filePath">Word文件路径</param>
+            <returns>打分结果</returns>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.IQaEvaluationService.EvaluateAsync(BehaviorTest.Application.RBAC.Services.DTO.QaEvaluationRequest)">
+            <summary>
+            将问答列表发送到 LLM 进行评估
+            </summary>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.IQuestionAnswerService.SaveAsync(BehaviorTest.Application.RBAC.Services.DTO.QaSaveRequest)">
+            <summary>
+            保存一次教师提问与学生回答的集合
+            </summary>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.IQuestionAnswerService.GetRecentAsync(System.Int32)">
+            <summary>
+            获取最近的问答记录，便于后续汇总发送给 LLM
+            </summary>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.ISummaryService.GenerateSummariesForVideoAsync(System.UInt64)">
+            <summary>
+            根据 VideoId 生成所有关联转录的摘要
+            </summary>
+            <param name="videoId">视频的ID</param>
+            <returns>批量生成结果</returns>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.IVideoService.UploadVideoAsync(System.String,System.IO.Stream,System.String)">
+            <summary>
+            上传视频（用于 Blazor）
+            </summary>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.IVideoService.UploadVideoAsync1(System.IO.Stream,System.String,System.String)">
+            <summary>
+            上传视频（视频流）
+            </summary>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.IVideoService.GetAllVideosAsync">
+            <summary>
+            获取所有视频
+            </summary>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.IVideoService.DeleteVideoAsync(System.UInt64)">
+            <summary>
+            删除视频
+            </summary>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.IVideoService.CutVideoAsync(System.UInt64)">
+            <summary>
+            切割视频（按每10分钟）
+            </summary>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.UserService.Login(BehaviorTest.Application.RBAC.Services.DTO.LoginDTO)">
+            <summary>
+            登录（免授权）
+            </summary>
+            <param name="input"></param>
+            <returns></returns>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.UserService.GetUserInfo(System.String)">
+            <summary>
+            获取用户信息
+            </summary>
+            <param name="userId"></param>
+            <returns></returns>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.UserService.GetUserMenus(System.String)">
+            <summary>
+            获取用户菜单
+            </summary>
+            <param name="userId"></param>
+            <returns></returns>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.UserService.Logout">
+            <summary>
+             登出
+            </summary>
+            <returns></returns>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.UserService.IsLogin">
+            <summary>
+            是否登录
+            </summary>
+            <returns></returns>
+        </member>
+        <member name="M:AudioService.ConvertAllSegmentsForVideoAsync(System.UInt64)">
+            <summary>
+            【新增】核心业务方法：根据 VideoId 转换所有关联的视频片段
+            </summary>
+            <param name="videoId">视频的ID</param>
+            <returns>一个包含详细转换结果的对象</returns>
+        </member>
+        <member name="M:AudioService.ConvertSingleVideoToAudioAsync(System.String,System.String)">
+            <summary>
+            【重构】将原方法改为 private，作为内部实现细节
+            </summary>
+        </member>
+        <member name="M:AudioService.TranscribeAudioFileAsync(System.String,System.String)">
+            <summary>
+            转录音频文件
+            </summary>
+        </member>
+        <member name="M:AudioService.TranscribeAllSegmentsForVideoAsync(System.UInt64)">
+            <summary>
+            将原页面中的 StartTranscribing 逻辑移动到服务层：对指定 videoId 的所有片段进行转录。
+            返回 BatchConversionResult 以便前端显示总数/成功/失败信息。
+            </summary>
+        </member>
+    </members>
+</doc>

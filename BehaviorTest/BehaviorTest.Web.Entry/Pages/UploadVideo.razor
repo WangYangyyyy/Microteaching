@@ -1,0 +1,539 @@
+@page "/uploadvideo"
+@using System.Text.Json
+@inject IVideoService VideoService
+@inject IJSRuntime JSRuntime
+@inject IAudioService AudioService
+@inject ISummaryService SummaryService
+@inject IClassroomEvaluationService ClassroomEvaluationService
+
+<PageTitle>视频上传</PageTitle>
+
+<h1>视频上传与管理</h1>
+
+<div class="container">
+    <div class="row mt-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header">
+                    <h3>视频管理</h3>
+                </div>
+                <div class="card-body">
+                    <h5>1. 上传本地视频</h5>
+                    <InputFile OnChange="@HandleFileSelected" accept="video/*" class="form-control mb-3"/>
+
+                    @if (selectedFile != null)
+                    {
+                        <div class="alert alert-light py-2">
+                            <p class="mb-0"><strong>文件名:</strong> @selectedFile.Name</p>
+                            <p class="mb-0"><strong>文件大小:</strong> @FormatFileSize(selectedFile.Size)</p>
+                            <p class="mb-0"><strong>文件类型:</strong> @selectedFile.ContentType</p>
+                        </div>
+                    }
+
+                    @if (!string.IsNullOrEmpty(uploadMessage))
+                    {
+                        <div class="alert alert-@(uploadSuccess ? "success" : "danger")" role="alert">
+                            @uploadMessage
+                        </div>
+                    }
+                    @if (isUploading)
+                    {
+                        <div class="progress mb-3">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated"
+                                 role="progressbar"
+                                 style="width: 100%">
+                                上传中...
+                            </div>
+                        </div>
+                    }
+                    <button class="btn btn-primary" @onclick="UploadFile"
+                            disabled="@(selectedFile == null || isUploading)">
+                        @(isUploading ? "上传中..." : "上传视频")
+                    </button>
+
+                    <hr/>
+
+                    <h5>2. 录制视频流</h5>
+                    <div class="mb-2">
+                        <input class="form-control"
+                               placeholder="输入流地址，例如 rtsp://admin:admin@172.30.1.4:554/stream/2"
+                               @bind="streamUrl"/>
+                    </div>
+
+                    <div class="d-flex align-items-center flex-wrap">
+                        <button class="btn btn-outline-primary me-2 mb-2" @onclick="() => OpenVideoStream(streamUrl)"
+                                disabled="@string.IsNullOrWhiteSpace(streamUrl)">
+                            <span class="oi oi-play-circle" aria-hidden="true"></span> 打开流
+                        </button>
+                        <button class="btn btn-success me-2 mb-2" @onclick="StartRecordingClicked"
+                                disabled="@((string.IsNullOrWhiteSpace(streamUrl)) || isRecording)">
+                            <span class="oi oi-media-record" aria-hidden="true"></span> 开始录制
+                        </button>
+                        <button class="btn btn-danger me-2 mb-2" @onclick="StopRecordingClicked"
+                                disabled="@(!isRecording || currentRecordingId == null)">
+                            <span class="oi oi-media-stop" aria-hidden="true"></span> 停止录制
+                        </button>
+
+                        <span class="ms-auto mb-2 align-self-center">
+                            @if (isRecording)
+                            {
+                                <span class="badge bg-danger">录制中</span>
+                            }
+                            else if (currentRecordingId != null)
+                            {
+                                <span class="badge bg-secondary">已停止（待保存）</span>
+                            }
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h3>已上传的视频</h3>
+                    <button class="btn btn-secondary btn-sm" @onclick="LoadVideos">
+                        <span class="oi oi-reload" aria-hidden="true"></span> 刷新
+                    </button>
+                </div>
+                <div class="card-body">
+                    @if (videos == null)
+                    {
+                        <p><em>加载中...</em></p>
+                    }
+                    else if (!videos.Any())
+                    {
+                        <p class="text-muted">暂无已上传的视频</p>
+                    }
+                    else
+                    {
+                        <div class="row">
+                            @foreach (var video in videos)
+                            {
+                                <div class="col-md-4 mb-4">
+                                    <div class="card h-100 d-flex flex-column">
+                                        <div class="card-body">
+                                            <h5 class="card-title">@video.FileName</h5>
+                                            <video width="100%" controls>
+                                                <source src="@video.FilePath" type="@video.ContentType">
+                                                您的浏览器不支持视频标签。
+                                            </video>
+                                            <p class="card-text mt-2">
+                                                <small class="text-muted">
+                                                    上传时间: @video.UploadTime.ToString("yyyy-MM-dd HH:mm:ss")<br/>
+                                                    文件大小: @FormatFileSize(video.FileSize)
+                                                </small>
+                                            </p>
+                                        </div>
+
+                                        <div class="card-footer mt-auto d-flex flex-wrap">
+
+                                            <div>
+                                                <button class="btn btn-warning btn-sm me-2 mb-2"
+                                                        @onclick="() => StartCutting(video.Id)">
+                                                    <span class="oi oi-cut" aria-hidden="true"></span> 切割
+                                                </button>
+                                                <button class="btn btn-info btn-sm me-2 mb-2"
+                                                        @onclick="() => StartConvertingToAudio(video.Id)">
+                                                    <span class="oi oi-audio" aria-hidden="true"></span> 转换为音频
+                                                </button>
+                                                <button class="btn btn-success btn-sm me-2 mb-2"
+                                                        @onclick="() => StartTranscribing(video.Id)">
+                                                    <span class="oi oi-microphone" aria-hidden="true"></span> 转录
+                                                </button>
+                                            </div>
+
+                                            <div class="ms-auto">
+                                                <button class="btn btn-primary btn-sm me-2 mb-2"
+                                                        @onclick="() => StartGeneratingSummaries(video.Id)">
+                                                    <span class="oi oi-document" aria-hidden="true"></span> 生成摘要
+                                                </button>
+                                                <button class="btn btn-secondary btn-sm me-2 mb-2"
+                                                        @onclick="() => StartEvaluatingTeaching(video.Id)">
+                                                    <span class="oi oi-bar-chart" aria-hidden="true"></span> 教学评估
+                                                </button>
+                                                <button class="btn btn-danger btn-sm mb-2"
+                                                        @onclick="() => DeleteVideo(video.Id)">
+                                                    <span class="oi oi-trash" aria-hidden="true"></span> 删除
+                                                </button>
+                                                <button class="btn btn-outline-secondary btn-sm me-2 mb-2"
+                                                        @onclick="() => DownloadEvaluation(video.Id)">
+                                                    <span class="oi oi-cloud-download" aria-hidden="true"></span> 下载评估
+                                                </button>
+                                            </div>
+
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private IBrowserFile? selectedFile;
+    private List<VideoInfoDto> videos = new();
+    private string uploadMessage = string.Empty;
+    private bool uploadSuccess = false;
+    private bool isUploading = false;
+    private string streamUrl = string.Empty;
+    private Guid? currentRecordingId = null;
+    private bool isRecording = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadVideos();
+    }
+
+    private void HandleFileSelected(InputFileChangeEventArgs e)
+    {
+        selectedFile = e.File;
+        uploadMessage = string.Empty;
+    }
+
+    private async Task UploadFile()
+    {
+        if (selectedFile == null) return;
+
+        try
+        {
+            isUploading = true;
+            uploadMessage = string.Empty;
+            StateHasChanged();
+
+            // 取消大小限制
+            var maxFileSize = long.MaxValue;
+
+            using var stream = selectedFile.OpenReadStream(maxFileSize);
+            var result = await VideoService.UploadVideoAsync(selectedFile.Name, stream, selectedFile.ContentType);
+
+            if (result.Success)
+            {
+                uploadMessage = "视频上传成功！";
+                uploadSuccess = true;
+                selectedFile = null;
+                await LoadVideos();
+            }
+            else
+            {
+                uploadMessage = $"上传失败：{result.Message}";
+                uploadSuccess = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            uploadMessage = $"上传出错：{ex.Message}";
+            uploadSuccess = false;
+        }
+        finally
+        {
+            isUploading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadVideos()
+    {
+        videos = await VideoService.GetAllVideosAsync();
+        StateHasChanged();
+    }
+
+    private async Task DeleteVideo(ulong id)
+    {
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", "确定要删除这个视频吗？");
+        if (confirmed)
+        {
+            var result = await VideoService.DeleteVideoAsync(id);
+            if (result.Success)
+            {
+                await LoadVideos();
+            }
+            else
+            {
+                await JSRuntime.InvokeVoidAsync("alert", $"删除失败：{result.Message}");
+            }
+        }
+    }
+
+    private async Task StartCutting(ulong videoId)
+    {
+        try
+        {
+            var result = await VideoService.CutVideoAsync(videoId);
+            if (result.Success)
+            {
+                await JSRuntime.InvokeVoidAsync("alert", "视频切割完成！");
+            }
+            else
+            {
+                await JSRuntime.InvokeVoidAsync("alert", $"切割失败：{result.Message}");
+            }
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"切割出错：{ex.Message}");
+        }
+    }
+
+    private async Task StartConvertingToAudio(ulong videoId)
+    {
+        try
+        {
+            // 1. 只需调用服务层的方法
+            var result = await AudioService.ConvertAllSegmentsForVideoAsync(videoId);
+
+            // 2. 根据返回的结果对象，格式化UI消息
+            string finalMessage;
+            if (result.TotalFiles == 0)
+            {
+                finalMessage = "没有找到可转换的视频。";
+            }
+            else
+            {
+                finalMessage = $"转换完成！\n总数: {result.TotalFiles} 个\n成功: {result.SuccessCount} 个\n失败: {result.FailureCount} 个";
+                if (result.FailedMessages.Any())
+                {
+                    // 把详细错误信息也展示出来
+                    finalMessage += "\n\n失败详情:\n" + string.Join("\n", result.FailedMessages);
+                }
+            }
+
+            // 3. 显示最终结果
+            await JSRuntime.InvokeVoidAsync("alert", finalMessage);
+        }
+        catch (Exception ex)
+        {
+            // 捕获服务层可能抛出的意外异常
+            await JSRuntime.InvokeVoidAsync("alert", $"程序发生严重错误：{ex.Message}");
+        }
+    }
+
+    private async Task StartTranscribing(ulong videoId)
+    {
+        try
+        {
+            var result = await AudioService.TranscribeAllSegmentsForVideoAsync(videoId);
+
+            string finalMessage;
+            if (result.TotalFiles == 0)
+            {
+                finalMessage = "没有找到可转录的片段。";
+            }
+            else
+            {
+                finalMessage = $"转录完成！\n总数: {result.TotalFiles} 个\n成功: {result.SuccessCount} 个\n失败: {result.FailureCount} 个";
+                if (result.FailedMessages.Any())
+                {
+                    finalMessage += "\n\n失败详情:\n" + string.Join("\n", result.FailedMessages);
+                }
+            }
+
+            await JSRuntime.InvokeVoidAsync("alert", finalMessage);
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"转录出错：{ex.Message}");
+        }
+    }
+
+    private async Task StartGeneratingSummaries(ulong videoId)
+    {
+        try
+        {
+            var result = await SummaryService.GenerateSummariesForVideoAsync(videoId);
+            string finalMessage;
+            if (result.TotalFiles == 0)
+            {
+                finalMessage = "没有找到转录记录。";
+            }
+            else
+            {
+                finalMessage = $"摘要生成完成！\n总数: {result.TotalFiles} 个\n成功: {result.SuccessCount} 个\n失败: {result.FailureCount} 个";
+                if (result.FailedMessages.Any())
+                {
+                    finalMessage += "\n\n失败详情:\n" + string.Join("\n", result.FailedMessages);
+                }
+            }
+
+            await JSRuntime.InvokeVoidAsync("alert", finalMessage);
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"生成摘要出错：{ex.Message}");
+        }
+    }
+
+    private async Task StartEvaluatingTeaching(ulong videoId)
+    {
+        try
+        {
+            var result = await ClassroomEvaluationService.EvaluateAndSaveReportForVideoAsync(videoId);
+            if (result.Success)
+            {
+                await JSRuntime.InvokeVoidAsync("alert", result.Message);
+            }
+            else
+            {
+                await JSRuntime.InvokeVoidAsync("alert", $"评估失败：{result.Message}");
+            }
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"评估出错：{ex.Message}");
+        }
+    }
+
+
+    private async Task OpenVideoStream(string filePath)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(filePath)) return;
+
+            // 支持 rtmp/rtmps 直连（直接在新标签页打开）
+            if (filePath.StartsWith("rtmp://", StringComparison.OrdinalIgnoreCase) ||
+                filePath.StartsWith("rtmps://", StringComparison.OrdinalIgnoreCase))
+            {
+                await JSRuntime.InvokeVoidAsync("open", filePath, "_blank");
+                return;
+            }
+
+            // 其他（http(s) 或 相对路径）保持原有打开逻辑
+            await JSRuntime.InvokeVoidAsync("open", filePath, "_blank");
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"打开视频流失败：{ex.Message}");
+        }
+    }
+
+    private async Task StartRecordingClicked()
+    {
+        if (string.IsNullOrWhiteSpace(streamUrl))
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "请输入流地址后再开始录制。");
+            return;
+        }
+
+        var result = await VideoService.StartRecordingAsync(streamUrl);
+        if (!result.Success)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"开始录制失败：{result.Message}");
+            return;
+        }
+
+        // 尝试从返回数据中提取 RecordingId（兼容匿名对象或 JsonElement）
+        Guid parsedId;
+        var gotId = false;
+
+        if (result.Data is JsonElement je)
+        {
+            if (je.ValueKind == JsonValueKind.Object && je.TryGetProperty("RecordingId", out var rid) && rid.ValueKind == JsonValueKind.String && Guid.TryParse(rid.GetString(), out parsedId))
+            {
+                currentRecordingId = parsedId;
+                gotId = true;
+            }
+            else if (je.ValueKind == JsonValueKind.String && Guid.TryParse(je.GetString(), out parsedId))
+            {
+                currentRecordingId = parsedId;
+                gotId = true;
+            }
+        }
+        else if (result.Data != null)
+        {
+            try
+            {
+                var json = JsonSerializer.Serialize(result.Data);
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("RecordingId", out var rid) && rid.ValueKind == JsonValueKind.String && Guid.TryParse(rid.GetString(), out parsedId))
+                {
+                    currentRecordingId = parsedId;
+                    gotId = true;
+                }
+            }
+            catch
+            {
+                // 忽略解析异常
+            }
+        }
+
+        isRecording = true;
+        var msg = gotId ? "已开始录制。" : "已开始录制（未获取到录制ID，可能无法停止）。";
+        await JSRuntime.InvokeVoidAsync("alert", msg);
+    }
+
+    private async Task StopRecordingClicked()
+    {
+        if (!isRecording || currentRecordingId == null)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "当前没有正在进行的录制。");
+            return;
+        }
+
+        var result = await VideoService.StopRecordingAsync(currentRecordingId.Value);
+        if (!result.Success)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"停止录制失败：{result.Message}");
+        }
+        else
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "停止录制并保存成功。");
+            await LoadVideos();
+        }
+
+        // 重置状态
+        currentRecordingId = null;
+        isRecording = false;
+    }
+
+    private async Task DownloadEvaluation(ulong videoId)
+    {
+        try
+        {
+            var relativePath = await ClassroomEvaluationService.GetEvaluationReportForVideoAsync(videoId);
+            if (string.IsNullOrWhiteSpace(relativePath))
+            {
+                await JSRuntime.InvokeVoidAsync("alert", "未找到评估报告。");
+                return;
+            }
+
+            var fileName = Path.GetFileName(relativePath);
+            if (string.IsNullOrWhiteSpace(fileName))
+            {
+                fileName = $"evaluation_{videoId}.md";
+            }
+
+            // 使用在 `/wwwroot/js/site.js` 中定义的全局函数进行下载
+            await JSRuntime.InvokeVoidAsync("forceDownload", relativePath, fileName);
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"下载评估出错：{ex.Message}");
+        }
+            
+    }
+        
+
+    private string FormatFileSize(long bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB" };
+        double len = bytes;
+        int order = 0;
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len = len / 1024;
+        }
+
+        return $"{len:0.##} {sizes[order]}";
+    }
+
+}

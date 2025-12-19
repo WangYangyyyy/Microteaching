@@ -1,0 +1,25 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+
+    <PropertyGroup>
+        <TargetFramework>net9.0</TargetFramework>
+        <NoWarn>1701;1702;1591</NoWarn>
+        <DocumentationFile>BehaviorTest.Web.Core.xml</DocumentationFile>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <None Remove="BehaviorTest.Web.Core.xml"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\BehaviorTest.Application\BehaviorTest.Application.csproj"/>
+        <ProjectReference Include="..\BehaviorTest.Database.Migrations\BehaviorTest.Database.Migrations.csproj"/>
+    </ItemGroup>
+
+    <ItemGroup>
+      <PackageReference Include="BootstrapBlazor" Version="9.11.2-beta07" />
+      <PackageReference Include="BootstrapBlazor.Chart" Version="9.0.3" />
+      <PackageReference Include="BootstrapBlazor.FontAwesome" Version="9.1.2" />
+    </ItemGroup>
+
+</Project>

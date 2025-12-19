@@ -1,0 +1,117 @@
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+@using System.Text
+@using System.Text.Json
+@implements IDisposable
+
+<BootstrapBlazorRoot>
+<Router AppAssembly="@typeof(App).Assembly">
+    <Found Context="routeData">
+        @if (_isChecking)
+        {
+            <div style="display: flex; justify-content: center; align-items: center; height: 100vh;">
+                <p>加载中...</p>
+            </div>
+        }
+        else if (!isLogin && !Navigation.Uri.EndsWith("/Login"))
+        {
+            Navigation.NavigateTo("/Login", true);
+        }
+        else
+        {
+            <RouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)"/>
+        }
+    </Found>
+    <NotFound>
+        <LayoutView Layout="@typeof(MainLayout)">
+            <p>Sorry, there's nothing at this address.</p>
+        </LayoutView>
+    </NotFound>
+</Router>
+</BootstrapBlazorRoot>
+
+@code {
+    private bool isLogin;
+    private bool _isChecking = true;  // 初始化时设置为检查中
+    
+    protected override void OnInitialized()
+    {
+        // Listen to navigation changes
+        Navigation.LocationChanged += OnLocationChanged;
+    }
+    
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && _isChecking)
+        {
+            await CheckLoginStatus();
+            _isChecking = false;
+            StateHasChanged();  // 检查完成后触发重新渲染
+        }
+    }
+    
+    private async void OnLocationChanged(object sender, LocationChangedEventArgs e)
+    {
+        System.Console.WriteLine($"Location changed to: {e.Location}");
+        await CheckLoginStatus();
+    }
+    
+    private async Task CheckLoginStatus()
+    {
+        var token = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "token");
+        if (ValidateToken(token))
+        {
+            System.Console.WriteLine($"Token valid: {token.Substring(0, Math.Min(20, token.Length))}...");
+            isLogin = true;
+            // 添加：如果当前是登录页面，跳转到默认页面
+            if (Navigation.Uri.EndsWith("/Login"))
+            {
+                Navigation.NavigateTo("/", true);  // 替换 "/" 为你的默认页面路径
+            }
+        }
+        else
+        {
+            System.Console.WriteLine("Token missing or invalid/expired, clearing and redirecting.");
+            isLogin = false;
+            await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "token");
+        }
+        
+        StateHasChanged();
+    }
+    
+    private bool ValidateToken(string token)
+    {
+        if (string.IsNullOrWhiteSpace(token)) return false;
+        try
+        {
+            var parts = token.Split('.');
+            if (parts.Length != 3) return false;
+            var payloadJson = Encoding.UTF8.GetString(Base64UrlDecode(parts[1]));
+            using var doc = JsonDocument.Parse(payloadJson);
+            if (!doc.RootElement.TryGetProperty("exp", out var expElement)) return false;
+            var expSeconds = expElement.GetInt64();
+            var expDate = DateTimeOffset.FromUnixTimeSeconds(expSeconds).UtcDateTime;
+            return expDate > DateTime.UtcNow;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+    
+    private byte[] Base64UrlDecode(string input)
+    {
+        var output = input.Replace('-', '+').Replace('_', '/');
+        switch (output.Length % 4)
+        {
+            case 2: output += "=="; break;
+            case 3: output += "="; break;
+        }
+        return Convert.FromBase64String(output);
+    }
+    
+    public void Dispose()
+    {
+        Navigation.LocationChanged -= OnLocationChanged;
+    }
+}

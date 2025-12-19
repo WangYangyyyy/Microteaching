@@ -1,0 +1,5 @@
+﻿{
+  "ConnectionStrings": {
+    "BehaviorTest": "Data Source=localhost;Database=BehaviorTest;User ID=root;Password=rootroot;pooling=true;port=3306;sslmode=none;CharSet=utf8;"
+  }
+}
