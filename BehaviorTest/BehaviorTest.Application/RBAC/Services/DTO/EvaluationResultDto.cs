@@ -49,4 +49,10 @@ public class EvaluationResultDto
     /// </summary>
     [JsonPropertyName("comment")]
     public string Comment { get; set; } = string.Empty;
+    
+    /// <summary>
+    /// 改进建议，对应 JSON: improvements
+    /// </summary>
+    [JsonPropertyName("improvements")]
+    public string Improvements { get; set; } = string.Empty;
 }

@@ -17,7 +17,7 @@
     <div class="row mb-3">
         <div class="col-12">
             <div class="d-flex align-items-center mb-1">
-                <h3 class="mb-0 me-3">课堂评价一键处理 Demo（理论课）</h3>
+                <h3 class="mb-0 me-3">课堂评价一键处理（理论课）</h3>
                 <span class="badge bg-secondary">基于邯郸学院课堂教学评价标准</span>
             </div>
             <div class="text-muted small">
@@ -60,6 +60,18 @@
                                 @UploadMessage
                             </div>
                         }
+                    </div>
+                    
+                    <!-- 新增：关联微课 ID -->
+                    <div class="mb-3">
+                        <label class="form-label">关联微课 ID（可选）</label>
+                        <InputNumber @bind-Value="MicroLessonIdInput"
+                                     class="form-control"
+                                     TValue="long?"
+                        />
+                        <div class="form-text">
+                            如果要将视频关联到特定微课，请输入微课 ID；留空则不关联。
+                        </div>
                     </div>
 
                     <hr />
@@ -193,7 +205,8 @@
                                 <thead class="table-light">
                                     <tr>
                                         <th style="width:80px;">ID</th>
-                                        <th>文件名</th>
+                                        <th style="width: auto">MicrolessonId</th>
+                                        <th style="width: auto">文件名</th>
                                         <th style="width:150px;">上传时间</th>
                                         <th style="width:100px;">状态</th>
                                         <th style="width:120px;">操作</th>
@@ -205,6 +218,7 @@
                                         var isSelected = VideoIdInput.HasValue && (ulong)VideoIdInput.Value == v.Id;
                                         <tr class="@((isSelected ? "table-primary" : ""))">
                                             <td>@v.Id</td>
+                                            <td>@v.MicroLessonId</td>
                                             <td title="@v.FilePath">
                                                 <span class="text-truncate d-inline-block" style="max-width: 260px;">
                                                     @v.FileName
@@ -443,6 +457,9 @@
     private string? VideoPreviewUrl { get; set; }
 
     private CancellationTokenSource? _cts;
+    
+    // 用于关联微课的 ID 输入
+    private long? MicroLessonIdInput { get; set; }
 
     // 视频列表
     private List<VideoInfoDto> VideoList { get; set; } = new();
@@ -489,8 +506,9 @@
             var result = await VideoService.UploadVideoAsync(
                 file.Name,
                 stream,
-                file.ContentType ?? "video/mp4");
-
+                file.ContentType ?? "video/mp4",
+                MicroLessonIdInput.HasValue ? (ulong?)MicroLessonIdInput.Value : null);
+            
             if (!result.Success)
             {
                 ErrorMessage = "上传失败：" + result.Message;
@@ -527,6 +545,7 @@
     private void SelectVideo(VideoInfoDto v)
     {
         VideoIdInput = (long)v.Id;
+        MicroLessonIdInput = (long)v.MicroLessonId;
         VideoPreviewUrl = v.FilePath;
         ErrorMessage = null;
     }

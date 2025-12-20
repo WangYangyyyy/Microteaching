@@ -44,5 +44,10 @@ public class VideoInfoDto
     /// 状态
     /// </summary>
     public string Status { get; set; } = string.Empty;
+    
+    /// <summary>
+    /// 微课id
+    /// </summary>
+    public ulong MicroLessonId { get; set; }
 }
 

@@ -9,7 +9,7 @@ public interface IVideoService
     /// <summary>
     /// 上传视频（用于 Blazor）
     /// </summary>
-    Task<OperationResult> UploadVideoAsync(string fileName, Stream stream, string contentType);
+    Task<OperationResult> UploadVideoAsync(string fileName, Stream stream, string contentType, ulong? microLessonId);
     
     /// <summary>
     /// 上传视频（视频流）
@@ -33,7 +33,7 @@ public interface IVideoService
     Task<OperationResult> CutVideoAsync(ulong videoId);
 
     // 录制视频
-    Task<OperationResult> StartRecordingAsync(string streamUrl);
+    Task<OperationResult> StartRecordingAsync(string streamUrl,ulong? microLessonId);
     Task<OperationResult> StopRecordingAsync(Guid recordingId);
     
     Task<string> GetVideoFileNameAsync (ulong videoId);

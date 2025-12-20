@@ -1,5 +1,6 @@
 ﻿@page "/userevaluation"
 @using System.Text.Json
+@using BehaviorTest.Application.RBAC.Entity
 @* 确保引用了实体命名空间，如果没有请根据项目实际情况调整 *@
 
 @inject IVideoService VideoService
@@ -7,8 +8,9 @@
 @inject IAudioService AudioService
 @inject ISummaryService SummaryService
 @inject IClassroomEvaluationService ClassroomEvaluationService
-@inject IQuestionAnswerService QuestionAnswerService 
-@* ✅ 新增注入：问答服务 *@
+@inject IQuestionAnswerService QuestionAnswerService
+@inject IMicroLessonService MicroLessonService
+
 
 @implements IAsyncDisposable
 
@@ -17,6 +19,115 @@
 <h1>视频上传与课堂模拟</h1>
 
 <div class="container">
+    @* ========================================== *@
+    @* 🆕 新增区域：课程/微课设置 *@
+    @* ========================================== *@
+    <div class="row mt-4">
+        <div class="col-md-12">
+            <div class="card border-info">
+                <div class="card-header bg-info text-white">
+                    <h3 class="mb-0">📚 课程设置</h3>
+                </div>
+                <div class="card-body">
+                    <div class="row g-3 align-items-center">
+                        @* 1. 选择已有课程 *@
+                        <div class="col-md-5">
+                            <label class="form-label">选择当前课程（将与录制的视频关联）：</label>
+                            <select class="form-select" @bind="currentMicroLessonId">
+                                <option value="">-- 不关联特定课程 --</option>
+                                @foreach (var lesson in microLessons)
+                                {
+                                    <option value="@lesson.Id">@lesson.Title (@lesson.CreatedAt.ToShortDateString())</option>
+                                }
+                            </select>
+                        </div>
+
+                        @* 2. 创建新课程 *@
+                        <div class="col-md-7">
+                            <label class="form-label">或新建课程：</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" placeholder="输入课程标题..." @bind="newLessonTitle" />
+                                <input type="text" class="form-control" placeholder="描述(可选)" @bind="newLessonDesc" />
+                                <button class="btn btn-primary" type="button" @onclick="CreateLessonAsync">
+                                    <span class="oi oi-plus"></span> 新建并选中
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    @if (currentMicroLessonId != null)
+                    {
+                        <div class="alert alert-success mt-2 mb-0 py-2">
+                            当前已选中课程 ID：<strong>@currentMicroLessonId</strong>，接下来的<strong>视频录制</strong>将自动归档到该课程下。
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    @* ========================================== *@
+    @* 🔽 原有区域：视频管理 (UserEvaluation原有代码) *@
+    @* ========================================== *@
+    <div class="row mt-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header">
+                    <h3>视频管理</h3>
+                </div>
+
+                <div class="card-body">
+
+                    <h5>录制视频流</h5>
+                    <div class="mb-2">
+                        <select class="form-control" @bind="streamUrl">
+                            <option value="">选择或输入流地址</option>
+                            <option value="rtmp://10.250.100.7/live/23703251658928018_H1">教室5</option>
+                            <option value="rtmp://211.82.207.138:1935/hls/1">教室2</option>
+                        </select>
+                    </div>
+
+                    <div class="d-flex align-items-center flex-wrap">
+                        <button class="btn btn-outline-primary me-2 mb-2" @onclick="() => OpenVideoStream(streamUrl)"
+                                disabled="@string.IsNullOrWhiteSpace(streamUrl)">
+                            <span class="oi oi-play-circle" aria-hidden="true"></span> 打开流
+                        </button>
+                        <div class="mx-3"></div>
+                        <div class="btn-group" role="group">
+                            <button class="btn btn-success me-2 mb-2" @onclick="StartRecordingClicked"
+                                    disabled="@((string.IsNullOrWhiteSpace(streamUrl)) || isRecording)">
+                                <span class="oi oi-media-record" aria-hidden="true"></span> 开始录制
+                            </button>
+                            <button class="btn btn-danger me-2 mb-2" @onclick="StopRecordingClicked"
+                                    disabled="@(!isRecording || currentRecordingId == null)">
+                                <span class="oi oi-media-stop" aria-hidden="true"></span> 停止录制
+                            </button>
+                        </div>
+                        <div class="mx-3"></div>
+
+                        <span class="ms-auto mb-2 align-self-center">
+                            @if (isRecording)
+                            {
+                                <span class="badge bg-danger me-2">录制中</span>
+                                @if (recordingStartOk == true)
+                                {
+                                    <span class="badge bg-success">已检测到文件</span>
+                                }
+                                else if (recordingStartOk == false)
+                                {
+                                    <span class="badge bg-warning text-dark">未检测到文件，可能失败</span>
+                                }
+                            }
+                            else if (currentRecordingId != null)
+                            {
+                                <span class="badge bg-secondary">已停止（待保存）</span>
+                            }
+                        </span>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </div>
     
     @* ========================================== *@
     @* 🔽 新增区域：语音课堂模拟 (从 StuTeaQuestion 迁移) *@
@@ -93,71 +204,7 @@
             </div>
         </div>
     </div>
-
-
-    @* ========================================== *@
-    @* 🔽 原有区域：视频管理 (UserEvaluation原有代码) *@
-    @* ========================================== *@
-    <div class="row mt-4">
-        <div class="col-md-12">
-            <div class="card">
-                <div class="card-header">
-                    <h3>视频管理</h3>
-                </div>
-
-                <div class="card-body">
-
-                    <h5>录制视频流</h5>
-                    <div class="mb-2">
-                        <select class="form-control" @bind="streamUrl">
-                            <option value="">选择或输入流地址</option>
-                            <option value="rtmp://211.82.207.138:1935/hls/school_5_HD">教室5</option>
-                            <option value="rtmp://211.82.207.138:1935/hls/1">教室2</option>
-                        </select>
-                    </div>
-
-                    <div class="d-flex align-items-center flex-wrap">
-                        <button class="btn btn-outline-primary me-2 mb-2" @onclick="() => OpenVideoStream(streamUrl)"
-                                disabled="@string.IsNullOrWhiteSpace(streamUrl)">
-                            <span class="oi oi-play-circle" aria-hidden="true"></span> 打开流
-                        </button>
-                        <div class="mx-3"></div>
-                        <div class="btn-group" role="group">
-                            <button class="btn btn-success me-2 mb-2" @onclick="StartRecordingClicked"
-                                    disabled="@((string.IsNullOrWhiteSpace(streamUrl)) || isRecording)">
-                                <span class="oi oi-media-record" aria-hidden="true"></span> 开始录制
-                            </button>
-                            <button class="btn btn-danger me-2 mb-2" @onclick="StopRecordingClicked"
-                                    disabled="@(!isRecording || currentRecordingId == null)">
-                                <span class="oi oi-media-stop" aria-hidden="true"></span> 停止录制
-                            </button>
-                        </div>
-                        <div class="mx-3"></div>
-
-                        <span class="ms-auto mb-2 align-self-center">
-                            @if (isRecording)
-                            {
-                                <span class="badge bg-danger me-2">录制中</span>
-                                @if (recordingStartOk == true)
-                                {
-                                    <span class="badge bg-success">已检测到文件</span>
-                                }
-                                else if (recordingStartOk == false)
-                                {
-                                    <span class="badge bg-warning text-dark">未检测到文件，可能失败</span>
-                                }
-                            }
-                            else if (currentRecordingId != null)
-                            {
-                                <span class="badge bg-secondary">已停止（待保存）</span>
-                            }
-                        </span>
-                    </div>
-
-                </div>
-            </div>
-        </div>
-    </div>
+    
 
 
     <div class="row mt-4">
@@ -250,7 +297,7 @@
 
 @code {
     // ==========================================
-    // 1. 语音课堂模拟变量 (从 StuTeaQuestion 迁移)
+    // 1. 语音课堂模拟变量
     // ==========================================
     private IJSObjectReference? _module;
     private DotNetObjectReference<UserEvaluation>? _dotNetRef;
@@ -259,7 +306,7 @@
     public string WakeWord { get; set; } = "同学";
     public int SilenceMs { get; set; } = 1800;
     public int VolumeThreshold { get; set; } = 2;
-    public bool UseAdaptiveThreshold { get; set; } = false; // 建议默认关闭自适应
+    public bool UseAdaptiveThreshold { get; set; } = false;
     public int NoiseSampleMs { get; set; } = 1000;
     public int NoiseMargin { get; set; } = 2;
     public int MinRecordMs { get; set; } = 1200;
@@ -274,7 +321,7 @@
     private DateTime _currentQuestionAt = DateTime.UtcNow;
 
     // ==========================================
-    // 2. 视频管理变量 (UserEvaluation 原有)
+    // 2. 视频管理变量
     // ==========================================
     private List<VideoInfoDto> videos = new();
     private string streamUrl = string.Empty;
@@ -282,6 +329,16 @@
     private bool isRecording = false;
     private bool? recordingStartOk = null;
 
+    // ==========================================
+    // 3. 课程设置变量
+    // ==========================================
+    private List<MicroLesson> microLessons = new();
+    
+    // 使用可空类型 ulong? 以匹配前端 <option value="">-- 不关联 --</option>
+    private ulong? currentMicroLessonId; 
+    
+    private string newLessonTitle = string.Empty;
+    private string newLessonDesc = string.Empty;
 
     // ==========================================
     // 生命周期方法
@@ -289,6 +346,7 @@
     
     protected override async Task OnInitializedAsync()
     {
+        await LoadMicroLessonsAsync(); // 加载课程列表
         await LoadVideos();
     }
 
@@ -303,13 +361,78 @@
     }
     
     // ==========================================
-    // 3. 语音课堂逻辑方法 (Start/Stop)
+    // 课程设置逻辑 (Updated)
+    // ==========================================
+    private async Task LoadMicroLessonsAsync()
+    {
+        try 
+        {
+            microLessons = await MicroLessonService.GetMicroLessonsAsync();
+            
+            // 逻辑选择：
+            // 如果你希望默认选中最新的课程，可以在这里设置
+            // 如果希望默认保持“不关联”，则保持 currentMicroLessonId 为 null
+            if (microLessons.Any() && currentMicroLessonId == null)
+            {
+                 // 示例：默认选中第一个（假设 Service 返回按时间倒序）
+                 currentMicroLessonId = microLessons.First().Id;
+            }
+        }
+        catch (Exception ex)
+        {
+             await JSRuntime.InvokeVoidAsync("alert", $"加载课程失败：{ex.Message}");
+        }
+    }
+
+    // 对应前端 @onclick="CreateLessonAsync"
+    private async Task CreateLessonAsync()
+    {
+        if (string.IsNullOrWhiteSpace(newLessonTitle))
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "请输入课程标题。");
+            return;
+        }
+
+        try
+        {
+            // 调用 Service 创建接口，传入标题和描述
+            var result = await MicroLessonService.CreateMicroLessonAsync(newLessonTitle, newLessonDesc);
+            
+            if (result.Success)
+            {
+                await JSRuntime.InvokeVoidAsync("alert", "课程创建成功！");
+                
+                // 清空输入框
+                newLessonTitle = string.Empty;
+                newLessonDesc = string.Empty;
+                
+                // 刷新列表
+                await LoadMicroLessonsAsync();
+                
+                // 自动选中刚刚创建的课程 (假设它是列表中的第一个)
+                if (microLessons.Any())
+                {
+                    currentMicroLessonId = microLessons.First().Id;
+                }
+            }
+            else
+            {
+                await JSRuntime.InvokeVoidAsync("alert", $"创建失败：{result.Message}");
+            }
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"创建异常：{ex.Message}");
+        }
+    }
+
+    // ==========================================
+    // 语音课堂逻辑方法 (Start/Stop)
     // ==========================================
 
     private async Task StartClassroom()
     {
         if (_module is null || _dotNetRef is null) return;
-        
         Messages.Add(new ChatMsg("system", "系统", "开始监听（请授予麦克风权限）..."));
         
         var options = new
@@ -323,7 +446,6 @@
             SilentFrames = SilentFrames,
             SmoothWindow = SmoothWindow
         };
-
         await _module.InvokeVoidAsync(
             "startClassroomLoop",
             _dotNetRef,
@@ -357,7 +479,7 @@
     }
 
     // ==========================================
-    // 4. JS Invokable 回调 (处理录音、识别、回答)
+    // JS Invokable 回调
     // ==========================================
 
     [JSInvokable]
@@ -371,9 +493,6 @@
     [JSInvokable]
     public Task OnAsrRaw(string raw)
     {
-        if (!string.IsNullOrWhiteSpace(raw))
-            // 可以选择显示 raw，这里为了清爽暂时屏蔽，或只显示在 Log
-            // Messages.Add(new ChatMsg("system", "ASR原文", raw));
         InvokeAsync(StateHasChanged);
         return Task.CompletedTask;
     }
@@ -384,7 +503,7 @@
         Messages.Add(new ChatMsg("teacher", "老师提问", question));
         _currentQuestion = question;
         _currentQuestionAt = DateTime.UtcNow;
-        IsThinking = true; // 开启思考状态
+        IsThinking = true;
         InvokeAsync(StateHasChanged);
         return Task.CompletedTask;
     }
@@ -392,12 +511,11 @@
     [JSInvokable]
     public async Task OnStudentAnswers(JsonElement answers)
     {
-        IsThinking = false; // 关闭思考状态
+        IsThinking = false;
         InvokeAsync(StateHasChanged);
 
         var collected = new List<BehaviorTest.Application.RBAC.Services.DTO.StudentAnswerDto>();
         var audioList = new List<string>();
-
         if (answers.ValueKind == JsonValueKind.Array)
         {
             foreach (var a in answers.EnumerateArray())
@@ -419,18 +537,15 @@
                     Name = name,
                     Role = role,
                     Answer = ans
-                    // 不存音频 Base64 到数据库
                 });
             }
         }
 
-        // 调用 JS 播放声音
         if (audioList.Count > 0 && _module is not null)
         {
             await _module.InvokeVoidAsync("playStudentAudios", audioList);
         }
 
-        // 保存到数据库
         if (!string.IsNullOrWhiteSpace(_currentQuestion))
         {
             try
@@ -469,7 +584,7 @@
 
 
     // ==========================================
-    // 5. 视频管理原有方法
+    // 视频管理方法
     // ==========================================
 
     private async Task LoadVideos()
@@ -595,10 +710,19 @@
             return;
         }
 
+        // 检查当前是否选中了课程，如果为 null，提示用户确认
+        if (currentMicroLessonId == null)
+        {
+            var confirm = await JSRuntime.InvokeAsync<bool>("confirm", 
+                "您当前【未关联】任何课程，视频将独立归档。\n点击【确定】继续录制，点击【取消】去选择课程。");
+            if (!confirm) return;
+        }
+
         recordingStartOk = null;
         StateHasChanged();
 
-        var result = await VideoService.StartRecordingAsync(streamUrl);
+        // 传入 currentMicroLessonId (可能为 null)
+        var result = await VideoService.StartRecordingAsync(streamUrl, currentMicroLessonId);
 
         if (!result.Success)
         {
@@ -609,6 +733,7 @@
             return;
         }
 
+        // 解析返回的 RecordingId
         Guid parsedId;
         var gotId = false;
 
@@ -710,7 +835,6 @@
 
     public async ValueTask DisposeAsync()
     {
-        // 销毁语音课堂的资源
         try { if (_module is not null) await _module.InvokeVoidAsync("stopClassroomLoop"); } catch {}
         _dotNetRef?.Dispose();
         if (_module is not null) await _module.DisposeAsync();
@@ -720,12 +844,10 @@
     // 内部类 (Dto)
     // ==========================================
     public record ChatMsg(string Kind, string Title, string Text);
-    
     public class StudentAnswerDto
     {
         public string? Name { get; set; }
         public string? Role { get; set; }
         public string? Answer { get; set; }
-        // 不需要在这里定义 Audio_Base64，因为它只用于传输播放，不存数据库
     }
 }

@@ -3,7 +3,7 @@
 namespace BehaviorTest.Application.RBAC.Entity;
 
 [Table("micro_lessons")]// 课次表
-public class MicroLesson
+public class MicroLesson:IPrivateEntity
 {
     [Key, Column("id")]
     public ulong Id { get; set; }

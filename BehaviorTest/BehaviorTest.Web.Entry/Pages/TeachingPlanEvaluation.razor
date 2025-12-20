@@ -1,12 +1,60 @@
 ﻿@page "/teachingplanevaluation"
+@using BehaviorTest.Application.RBAC.Entity
 @inject IJSRuntime JSRuntime
 @inject IDesignEvaluationService _DesignEvaluationService
+@inject IMicroLessonService MicroLessonService 
 
 <PageTitle>导学案上传与评价</PageTitle>
 
 <h1>导学案上传与教学设计评价</h1>
 
 <div class="container">
+
+    @* ========================================== *@
+    @* 🆕 新增区域：课程/微课设置 *@
+    @* ========================================== *@
+    <div class="row mt-4">
+        <div class="col-md-12">
+            <div class="card border-info">
+                <div class="card-header bg-info text-white">
+                    <h3 class="mb-0">📚 课程设置</h3>
+                </div>
+                <div class="card-body">
+                    <div class="row g-3 align-items-center">
+                        @* 1. 选择已有课程 *@
+                        <div class="col-md-5">
+                            <label class="form-label">选择当前课程（将与录制的视频关联）：</label>
+                            <select class="form-select" @bind="currentMicroLessonId">
+                                <option value="">-- 不关联特定课程 --</option>
+                                @foreach (var lesson in microLessons)
+                                {
+                                    <option value="@lesson.Id">@lesson.Title (@lesson.CreatedAt.ToShortDateString())</option>
+                                }
+                            </select>
+                        </div>
+
+                        @* 2. 创建新课程 *@
+                        <div class="col-md-7">
+                            <label class="form-label">或新建课程：</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" placeholder="输入课程标题..." @bind="newLessonTitle" />
+                                <input type="text" class="form-control" placeholder="描述(可选)" @bind="newLessonDesc" />
+                                <button class="btn btn-primary" type="button" @onclick="CreateLessonAsync">
+                                    <span class="oi oi-plus"></span> 新建并选中
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    @if (currentMicroLessonId != null)
+                    {
+                        <div class="alert alert-success mt-2 mb-0 py-2">
+                            当前已选中课程 ID：<strong>@currentMicroLessonId</strong>，接下来的<strong>教学设计</strong>将自动归档到该课程下。
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
 
     <!-- 顶部：上传区域 + 当前选中导学案信息 -->
     <div class="row mt-4">
@@ -17,7 +65,7 @@
                 </div>
                 <div class="card-body">
                     <p class="text-muted">
-                        请上传 <strong>Word 导学案（.docx）</strong>，系统将把文件保存到
+                        请上传 <strong>Word 教学设计（.docx）</strong>，系统将把文件保存到
                         <code>wwwroot/teachingplan</code> 目录，并写入数据库。
                     </p>
 
@@ -154,11 +202,18 @@
                                                 disabled="@isEvaluating">
                                             <span class="oi oi-bar-chart" aria-hidden="true"></span> 评估
                                         </button>
+                                        
+                                        <button class="btn btn-sm btn-outline-info me-2"
+                                                @onclick="() => DownloadEvaluationReportAsync(plan)">
+                                            <span class="oi oi-cloud-download" aria-hidden="true"></span> 下载评估
+                                        </button>
 
-                                        <a class="btn btn-sm btn-outline-primary"
+                                        @*<a class="btn btn-sm btn-outline-primary"
                                            href="@($"/{plan.SourcePath}")" target="_blank">
                                             <span class="oi oi-eye" aria-hidden="true"></span> 查看
-                                        </a>
+                                        </a>*@
+                                        
+                                        
                                     </td>
                                 </tr>
                             }
@@ -190,10 +245,88 @@
     private EvaluationResultDto? evaluationResult;
 
     private bool canUpload => selectedFile is not null && !isUploading;
+    
+    // ==========================================
+    // 3. 课程设置变量
+    // ==========================================
+    private List<MicroLesson> microLessons = new();
+    
+    // 使用可空类型 ulong? 以匹配前端 <option value="">-- 不关联 --</option>
+    private ulong? currentMicroLessonId; 
+    
+    private string newLessonTitle = string.Empty;
+    private string newLessonDesc = string.Empty;
 
     protected override async Task OnInitializedAsync()
     {
+        await LoadMicroLessonsAsync(); // 加载课程列表
         await LoadLessonPlansAsync();
+    }
+    
+    // ==========================================
+    // 课程设置逻辑 (Updated)
+    // ==========================================
+    private async Task LoadMicroLessonsAsync()
+    {
+        try 
+        {
+            microLessons = await MicroLessonService.GetMicroLessonsAsync();
+            
+            // 逻辑选择：
+            // 如果你希望默认选中最新的课程，可以在这里设置
+            // 如果希望默认保持“不关联”，则保持 currentMicroLessonId 为 null
+            if (microLessons.Any() && currentMicroLessonId == null)
+            {
+                 // 示例：默认选中第一个（假设 Service 返回按时间倒序）
+                 currentMicroLessonId = microLessons.First().Id;
+            }
+        }
+        catch (Exception ex)
+        {
+             await JSRuntime.InvokeVoidAsync("alert", $"加载课程失败：{ex.Message}");
+        }
+    }
+
+    // 对应前端 @onclick="CreateLessonAsync"
+    private async Task CreateLessonAsync()
+    {
+        if (string.IsNullOrWhiteSpace(newLessonTitle))
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "请输入课程标题。");
+            return;
+        }
+
+        try
+        {
+            // 调用 Service 创建接口，传入标题和描述
+            var result = await MicroLessonService.CreateMicroLessonAsync(newLessonTitle, newLessonDesc);
+            
+            if (result.Success)
+            {
+                await JSRuntime.InvokeVoidAsync("alert", "课程创建成功！");
+                
+                // 清空输入框
+                newLessonTitle = string.Empty;
+                newLessonDesc = string.Empty;
+                
+                // 刷新列表
+                await LoadMicroLessonsAsync();
+                
+                // 自动选中刚刚创建的课程 (假设它是列表中的第一个)
+                if (microLessons.Any())
+                {
+                    currentMicroLessonId = microLessons.First().Id;
+                }
+            }
+            else
+            {
+                await JSRuntime.InvokeVoidAsync("alert", $"创建失败：{result.Message}");
+            }
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"创建异常：{ex.Message}");
+        }
     }
 
     private void OnFileSelected(InputFileChangeEventArgs e)
@@ -228,7 +361,7 @@
             // 服务内部会：
             // 1. 保存文件到 wwwroot/teachingplan
             // 2. 写入 lesson_plans 表
-            var relativePath = await _DesignEvaluationService.UploadTeachingPlanAsync(selectedFile);
+            var relativePath = await _DesignEvaluationService.UploadTeachingPlanAsync(selectedFile, currentMicroLessonId ?? 1);
 
             uploadSuccess = true;
             statusMessage = $"导学案上传成功，路径：{relativePath}";
@@ -299,6 +432,34 @@
         {
             isEvaluating = false;
             StateHasChanged();
+        }
+    }
+    
+    
+    /// <summary>
+    /// 下载指定导学案的评估报告
+    /// </summary>
+    private async Task DownloadEvaluationReportAsync(LessonPlanListItemDto plan)
+    {
+        try
+        {
+            // 调用 Service 获取报告路径 (需要在 Service 中实现此方法)
+            var relativePath = await _DesignEvaluationService.GetEvaluationReportPathAsync(plan.Id);
+
+            if (string.IsNullOrWhiteSpace(relativePath))
+            {
+                await JSRuntime.InvokeVoidAsync("alert", "未找到该导学案的评估报告（请先进行评估）。");
+                return;
+            }
+
+            var fileName = Path.GetFileName(relativePath);
+            
+            // 使用全局下载函数 (wwwroot/js/site.js)
+            await JSRuntime.InvokeVoidAsync("forceDownload", relativePath, fileName);
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"下载出错：{ex.Message}");
         }
     }
 }

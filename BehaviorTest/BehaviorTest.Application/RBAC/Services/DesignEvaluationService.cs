@@ -46,7 +46,7 @@ namespace BehaviorTest.Application.RBAC.Services
         /// <summary>
         /// 上传导学案文件到 wwwroot/teachingplan，并在 lesson_plans 表插入一条记录
         /// </summary>
-        public async Task<string> UploadTeachingPlanAsync(IBrowserFile file)
+        public async Task<string> UploadTeachingPlanAsync(IBrowserFile file, ulong microLessonId )
         {
             if (file == null) throw new ArgumentNullException(nameof(file));
 
@@ -75,7 +75,7 @@ namespace BehaviorTest.Application.RBAC.Services
             // TODO：MicroLessonId 这里先写 0，你后续可以改成从 UI 传入真实的 microLessonId
             var lessonPlan = new LessonPlan
             {
-                MicroLessonId = 1, // ⚠️ 先占位，等你有 MicroLesson 后改掉
+                MicroLessonId = microLessonId, // ⚠️ 先占位，等你有 MicroLesson 后改掉
                 SourcePath = relativePath,
                 OriginalName = file.Name,
                 CreatedAt = DateTime.Now
@@ -147,6 +147,18 @@ namespace BehaviorTest.Application.RBAC.Services
             reportContent.AppendLine("## 综合评语");
             reportContent.AppendLine();
             reportContent.AppendLine(evalResult.Comment ?? string.Empty);
+            
+            // ✅ 新增：写入改进建议
+            reportContent.AppendLine();
+            reportContent.AppendLine("## 改进建议");
+            reportContent.AppendLine();
+            var improvements = evalResult.Improvements ?? "暂无改进建议";
+            // 1. 将字面量的 "\n" (两个字符) 替换为真实的换行符
+            // 2. 将单个换行符替换为两个换行符 (Markdown 通常需要空一行才能显示为新段落)
+            var formattedImprovements = improvements
+                .Replace("\\n", "\n") 
+                .Replace("\n", Environment.NewLine + Environment.NewLine);
+            reportContent.AppendLine(formattedImprovements);
 
             await File.WriteAllTextAsync(reportFullPath, reportContent.ToString(), Encoding.UTF8);
 
@@ -209,16 +221,28 @@ namespace BehaviorTest.Application.RBAC.Services
         {
             var systemPrompt = @"
 你是一名教学教研专家，请根据导学案从以下四个维度进行量化评价：
-1. 教学理念与目标（philosophy_score，0-25 分）
-2. 教学内容（content_score，0-25 分）
-3. 教学过程设计（process_score，0-25 分）
-4. 教学效果预期与评价设计（effect_score，0-25 分）
 
-要求：
-- 每个维度给出 0-25 分，总分 total_score 为 0-100。
+1. 教学理念与目标（philosophy_score，0–25 分）
+2. 教学内容（content_score，0–25 分）
+3. 教学过程设计（process_score，0–25 分）
+4. 教学效果预期与评价设计（effect_score，0–25 分）
+
+评价要求：
+- 每个维度给出 0–25 分，总分 total_score 为 0–100。
 - 分数可以是整数或一位小数。
 - 给出一个简短的综合评语 comment。
-- 只返回一个 JSON 对象。
+- 在不改变评分结果的前提下，给出【教学设计改进建议 improvements】。
+
+改进建议要求：
+- 聚焦“教学设计”层面（而非教师个人表现）
+- 对应四个评分维度分别给出改进方向
+- 建议应具体、可操作、专业，避免空泛表述
+- 每条建议不超过 2 句话
+
+输出要求：
+- 只返回一个 JSON 对象
+- 不要输出除 JSON 之外的任何文本
+
 JSON 示例：
 {
   ""total_score"": 86,
@@ -226,7 +250,9 @@ JSON 示例：
   ""content_score"": 23,
   ""process_score"": 21,
   ""effect_score"": 20,
-  ""comment"": ""综合评语...""
+  ""comment"": ""综合评语……"",
+  """"improvements"""": """"1. 建议加强...\\n2. 可以在...方面优化...""""
+  }
 }
 ";
 
@@ -292,6 +318,28 @@ JSON 示例：
             }
 
             return result;
+        }
+        
+        /// <summary>
+        /// 下载评估报告
+        /// </summary>
+        /// <param name="lessonPlanId"></param>
+        /// <returns></returns>
+        public async Task<string?> GetEvaluationReportPathAsync(ulong lessonPlanId)
+        {
+            // 1. 先查出这个教案的信息，获取它的 MicroLessonId
+            var plan = await _lessonPlanRepository.FindOrDefaultAsync(lessonPlanId);
+            if (plan == null) return null;
+
+            // 2. 在 Evaluation 表中查找最新的 LessonPlan 类型的评估记录
+            // 注意：这里假设一个 MicroLessonId 对应当前的导学案评估。
+            // 如果后续有多个教案对应同一个 MicroLesson，可能需要更精确的关联，但目前结构如此。
+            var evaluation = await _evaluationRepository.Entities
+                .Where(e => e.MicroLessonId == plan.MicroLessonId && e.PhaseType == "LessonPlan")
+                .OrderByDescending(e => e.StartedAt) // 取最新的一次
+                .FirstOrDefaultAsync();
+
+            return evaluation?.ReportStorePath;
         }
 
         public async Task<List<LessonPlanListItemDto>> GetLessonPlansAsync()

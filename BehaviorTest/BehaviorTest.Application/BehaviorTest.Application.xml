@@ -222,7 +222,7 @@
             查询指定视频的处理进度，用于进度条显示
             </summary>
         </member>
-        <member name="M:BehaviorTest.Application.RBAC.Services.DesignEvaluationService.UploadTeachingPlanAsync(Microsoft.AspNetCore.Components.Forms.IBrowserFile)">
+        <member name="M:BehaviorTest.Application.RBAC.Services.DesignEvaluationService.UploadTeachingPlanAsync(Microsoft.AspNetCore.Components.Forms.IBrowserFile,System.UInt64)">
             <summary>
             上传导学案文件到 wwwroot/teachingplan，并在 lesson_plans 表插入一条记录
             </summary>
@@ -236,6 +236,13 @@
             <summary>
             从 .docx 中提取纯文本
             </summary>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.DesignEvaluationService.GetEvaluationReportPathAsync(System.UInt64)">
+            <summary>
+            下载评估报告
+            </summary>
+            <param name="lessonPlanId"></param>
+            <returns></returns>
         </member>
         <member name="P:BehaviorTest.Application.RBAC.Services.DTO.EvaluationResultDto.Score">
             <summary>
@@ -275,6 +282,11 @@
         <member name="P:BehaviorTest.Application.RBAC.Services.DTO.EvaluationResultDto.Comment">
             <summary>
             综合评语，对应 JSON: comment
+            </summary>
+        </member>
+        <member name="P:BehaviorTest.Application.RBAC.Services.DTO.EvaluationResultDto.Improvements">
+            <summary>
+            改进建议，对应 JSON: improvements
             </summary>
         </member>
         <member name="P:BehaviorTest.Application.RBAC.Services.DTO.LoginDTO.Account">
@@ -374,6 +386,11 @@
             状态
             </summary>
         </member>
+        <member name="P:BehaviorTest.Application.RBAC.Services.DTO.VideoInfoDto.MicroLessonId">
+            <summary>
+            微课id
+            </summary>
+        </member>
         <member name="M:BehaviorTest.Application.RBAC.Services.IAudioService.ConvertAllSegmentsForVideoAsync(System.UInt64)">
             <summary>
             根据 VideoId 转换所有关联的视频片段
@@ -413,7 +430,7 @@
             <param name="videoId"></param>
             <returns></returns>
         </member>
-        <member name="M:BehaviorTest.Application.RBAC.Services.IDesignEvaluationService.UploadTeachingPlanAsync(Microsoft.AspNetCore.Components.Forms.IBrowserFile)">
+        <member name="M:BehaviorTest.Application.RBAC.Services.IDesignEvaluationService.UploadTeachingPlanAsync(Microsoft.AspNetCore.Components.Forms.IBrowserFile,System.UInt64)">
             <summary>
             上传导学案文件到wwwroot/teachingplan目录
             </summary>
@@ -426,6 +443,13 @@
             </summary>
             <param name="filePath">Word文件路径</param>
             <returns>打分结果</returns>
+        </member>
+        <member name="M:BehaviorTest.Application.RBAC.Services.IDesignEvaluationService.GetEvaluationReportPathAsync(System.UInt64)">
+            <summary>
+            下载评估报告
+            </summary>
+            <param name="lessonPlanId"></param>
+            <returns></returns>
         </member>
         <member name="M:BehaviorTest.Application.RBAC.Services.IQaEvaluationService.EvaluateAsync(BehaviorTest.Application.RBAC.Services.DTO.QaEvaluationRequest)">
             <summary>
@@ -449,7 +473,7 @@
             <param name="videoId">视频的ID</param>
             <returns>批量生成结果</returns>
         </member>
-        <member name="M:BehaviorTest.Application.RBAC.Services.IVideoService.UploadVideoAsync(System.String,System.IO.Stream,System.String)">
+        <member name="M:BehaviorTest.Application.RBAC.Services.IVideoService.UploadVideoAsync(System.String,System.IO.Stream,System.String,System.Nullable{System.UInt64})">
             <summary>
             上传视频（用于 Blazor）
             </summary>

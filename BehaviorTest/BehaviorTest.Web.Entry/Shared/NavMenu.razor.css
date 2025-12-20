@@ -3,12 +3,21 @@
 }
 
 .top-row {
-    height: 3.5rem;
+    min-height: 3.5rem;     /* 最小高度保持原样 */
+    height: auto;           /* ✅ 关键：允许随文字高度自动伸缩 */
     background-color: rgba(0,0,0,0.4);
+    display: flex;          /* 确保弹性布局 */
+    align-items: center;    /* 垂直居中 */
+    padding-top: 0.5rem;    /* 增加一点上下内边距，防止文字贴边 */
+    padding-bottom: 0.5rem;
 }
 
 .navbar-brand {
     font-size: 1.1rem;
+    white-space: normal;   /* 核心：允许文字换行 */
+    line-height: 1.2;      /* 调小行高，防止两行文字超出顶部容器高度 */
+    text-align: center;    /* 可选：让两行文字居中对齐，视觉上更平衡 */
+    max-width: 85%;        /* 防止遮挡右侧的折叠按钮（在移动端时） */
 }
 
 .oi {
@@ -49,6 +58,7 @@
     background-color: rgba(255,255,255,0.1);
     color: white;
 }
+
 
 @media (min-width: 641px) {
     .navbar-toggler {

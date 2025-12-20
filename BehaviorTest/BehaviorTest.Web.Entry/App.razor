@@ -2,6 +2,7 @@
 @inject IJSRuntime JSRuntime
 @using System.Text
 @using System.Text.Json
+@using Console = System.Console
 @implements IDisposable
 
 <BootstrapBlazorRoot>
@@ -58,25 +59,33 @@
     
     private async Task CheckLoginStatus()
     {
-        var token = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "token");
-        if (ValidateToken(token))
+        try
         {
-            System.Console.WriteLine($"Token valid: {token.Substring(0, Math.Min(20, token.Length))}...");
-            isLogin = true;
-            // 添加：如果当前是登录页面，跳转到默认页面
-            if (Navigation.Uri.EndsWith("/Login"))
+            var token = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "token");
+            if (ValidateToken(token))
             {
-                Navigation.NavigateTo("/", true);  // 替换 "/" 为你的默认页面路径
+                System.Console.WriteLine($"Token valid: {token.Substring(0, Math.Min(20, token.Length))}...");
+                isLogin = true;
+                // 添加：如果当前是登录页面，跳转到默认页面
+                if (Navigation.Uri.EndsWith("/Login"))
+                {
+                    Navigation.NavigateTo("/userevaluation", true); // 替换 "/" 为你的默认页面路径
+                }
             }
+            else
+            {
+                System.Console.WriteLine("Token missing or invalid/expired, clearing and redirecting.");
+                isLogin = false;
+                await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "token");
+            }
+
+            StateHasChanged();
         }
-        else
+        catch (TaskCanceledException)
         {
-            System.Console.WriteLine("Token missing or invalid/expired, clearing and redirecting.");
-            isLogin = false;
-            await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "token");
+
         }
         
-        StateHasChanged();
     }
     
     private bool ValidateToken(string token)

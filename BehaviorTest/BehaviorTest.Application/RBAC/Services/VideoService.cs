@@ -32,11 +32,11 @@ public class VideoService : IVideoService, IDynamicApiController, ITransient
         _http = http;
     }
 
-    private readonly ConcurrentDictionary<Guid, (Process Process, string FilePath, string FileName, string ContentType)>
+    private readonly ConcurrentDictionary<Guid, (Process Process, string FilePath, string FileName, string ContentType, ulong MicroLessonId)>
         _recordings = new();
 
     // 开始录制视频流
-    public async Task<OperationResult> StartRecordingAsync(string streamUrl)
+    public async Task<OperationResult> StartRecordingAsync(string streamUrl, ulong? microLessonId = null)
     {
         if (string.IsNullOrWhiteSpace(streamUrl))
             return OperationResult.FailureResult("流地址不能为空");
@@ -166,7 +166,7 @@ public class VideoService : IVideoService, IDynamicApiController, ITransient
                 // --- 成功！---
                 // 日志中已检测到 "Input #0"，确认录制开始
                 var id = Guid.NewGuid();
-                _recordings.TryAdd(id, (process, filePath, fileName, "video/mp4"));
+                _recordings.TryAdd(id, (process, filePath, fileName, "video/mp4", microLessonId ?? 1));
 
                 return OperationResult.SuccessResult("开始录制", new { RecordingId = id, FileName = fileName });
             }
@@ -288,6 +288,7 @@ public class VideoService : IVideoService, IDynamicApiController, ITransient
             var video = new Video
             {
                 UserId = 1, // 替换为真实的用户ID
+                MicroLessonId =  rec.MicroLessonId,
                 SourcePath = rec.FilePath,
                 OriginalName = rec.FileName,
                 Status = "uploaded",
@@ -410,7 +411,7 @@ public class VideoService : IVideoService, IDynamicApiController, ITransient
     }
 
 
-    public async Task<OperationResult> UploadVideoAsync(string fileName, Stream stream, string contentType)
+    public async Task<OperationResult> UploadVideoAsync(string fileName, Stream stream, string contentType, ulong? microLessonId = null)
     {
         try
         {
@@ -451,6 +452,7 @@ public class VideoService : IVideoService, IDynamicApiController, ITransient
             var video = new Video
             {
                 UserId = userId,
+                MicroLessonId =  microLessonId,
                 SourcePath = filePath,
                 OriginalName = fileName,
                 Status = "uploaded",
@@ -493,7 +495,8 @@ public class VideoService : IVideoService, IDynamicApiController, ITransient
             ContentType = GetContentType(v.OriginalName),
             UploadTime = v.CreatedAt,
             Status = v.Status,
-            Notes = v.Notes
+            Notes = v.Notes,
+            MicroLessonId = v.MicroLessonId ?? 0
         }).ToList();
     }
 
